@@ -614,30 +614,40 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
         if self.path == "/api/telegram":
             data = json.loads(post_data or "{}")
             token = data.get("token", "").strip()
-            # 验证 token
-            url = f"https://api.telegram.org/bot{token}/getMe"
+            if not token:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": "Token 不能为空"}).encode("utf-8"))
+                return
+
+            # 使用 curl 强制 IPv4 极速验证 token
             try:
-                with urllib.request.urlopen(url, timeout=10) as r:
-                    res = json.loads(r.read().decode('utf-8'))
-                    if res.get("ok"):
-                        username = res["result"].get("username", "")
-                        # 保存到 /etc/vps-backup/backup.conf
-                        conf_path = "/etc/vps-backup/backup.conf"
-                        if os.path.exists(conf_path):
-                            subprocess.run(["sed", "-i", f"s|^TG_BOT_TOKEN=.*|TG_BOT_TOKEN=\\\"{token}\\\"|", conf_path])
-                        # 重启 vps-backup-bot 服务
-                        subprocess.run(["systemctl", "daemon-reload"])
-                        subprocess.run(["systemctl", "enable", "--now", "vps-backup-bot"])
-                        subprocess.run(["systemctl", "restart", "vps-backup-bot"])
-                        self.send_response(200)
-                        self.send_header("Content-Type", "application/json")
-                        self.end_headers()
-                        self.wfile.write(json.dumps({"ok": True, "username": username}).encode("utf-8"))
-                        return
-                    else:
-                        error_msg = res.get("description", "Token 无效")
+                res_raw = subprocess.check_output(
+                    ["curl", "-4", "-s", "-m", "12", f"https://api.telegram.org/bot{token}/getMe"],
+                    text=True,
+                    errors="ignore"
+                )
+                res = json.loads(res_raw or "{}")
+                if res.get("ok"):
+                    username = res["result"].get("username", "")
+                    # 保存到 /etc/vps-backup/backup.conf
+                    conf_path = "/etc/vps-backup/backup.conf"
+                    if os.path.exists(conf_path):
+                        subprocess.run(["sed", "-i", f"s|^TG_BOT_TOKEN=.*|TG_BOT_TOKEN=\\\"{token}\\\"|", conf_path])
+                    # 重启 vps-backup-bot 服务
+                    subprocess.run(["systemctl", "daemon-reload"])
+                    subprocess.run(["systemctl", "enable", "--now", "vps-backup-bot"])
+                    subprocess.run(["systemctl", "restart", "vps-backup-bot"])
+                    self.send_response(200)
+                    self.send_header("Content-Type", "application/json")
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"ok": True, "username": username}).encode("utf-8"))
+                    return
+                else:
+                    error_msg = res.get("description", "Token 无效，请检查是否输入正确")
             except Exception as e:
-                error_msg = str(e)
+                error_msg = f"连接 Telegram 失败: {e}"
 
             self.send_response(200)
             self.send_header("Content-Type", "application/json")

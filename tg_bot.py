@@ -82,14 +82,13 @@ class TelegramBot:
         if not self.token:
             return None
         url = f"{self.api_base}/bot{self.token}/{method}"
-        headers = {"Content-Type": "application/json"}
-        req_data = json.dumps(data).encode("utf-8") if data else None
-        req = urllib.request.Request(url, data=req_data, headers=headers)
+        cmd = ["curl", "-4", "-s", "-m", "30", url]
+        if data:
+            cmd.extend(["-H", "Content-Type: application/json", "-d", json.dumps(data)])
         try:
-            with urllib.request.urlopen(req, timeout=35) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+            out = subprocess.check_output(cmd, text=True, errors="ignore")
+            return json.loads(out or "{}")
         except Exception as e:
-            # print(f"API {method} error: {e}")
             return None
 
     def send_msg(self, chat_id, text, reply_markup=None, parse_mode="HTML"):
