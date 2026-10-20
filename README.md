@@ -1,6 +1,24 @@
 # vps-backup — VPS 自动备份到 Google Drive
 
-基于 [rclone](https://rclone.org) 的 Bash 备份脚本，一套代码可部署到多台不同系统的 VPS。
+基于 [rclone](https://rclone.org) 的 Bash 备份系统，支持将多台不同系统的 VPS 自动定时打包/同步备份到 Google Drive 5TB 云盘，并自带 Web 浏览器与 SSH 双终端管理面板。
+
+## ⚡ 一键安装 (推荐)
+
+在任何 Linux VPS（Ubuntu / Debian / CentOS / Rocky / Alma / Alpine / Arch / openSUSE）上以 root 身份执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/firstwxx1/vps-gdrive-backup/main/quick-install.sh | bash
+```
+> 或使用 wget：`wget -qO- https://raw.githubusercontent.com/firstwxx1/vps-gdrive-backup/main/quick-install.sh | bash`
+
+安装脚本将自动完成：
+- 系统环境与核心依赖（curl, tar, zstd, openssl, cron, python3）自动安装
+- 最新版 rclone 自动检测与安装
+- 部署 Web 浏览器可视化终端面板（端口 `8999`，开机自启）
+- 部署 SSH 交互式彩色菜单命令：`backup-panel`
+- 设定每日凌晨自动错峰备份计划任务
+
+---
 
 | 功能 | 说明 |
 |---|---|
