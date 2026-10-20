@@ -451,8 +451,24 @@ HTML_PAGE = """<!DOCTYPE html>
             termStatus.style.color = 'var(--success)';
         }
 
-        // 初始拉取配额
+        async function checkTgStatus() {
+            try {
+                const res = await fetch('/api/tg_info');
+                const data = await res.json();
+                const statusEl = document.getElementById('tg-status');
+                if (data.token) {
+                    document.getElementById('tg-token').value = data.token;
+                    if (data.active) {
+                        statusEl.innerHTML = '<span style="color: var(--success); font-weight: bold;">● 机器人后台服务正在运行中</span>' + 
+                            (data.chat_id ? ` (已绑定管理员 ID: <code>${data.chat_id}</code>)` : ' (等待认主：请打开 Telegram 向机器人发送 <b>/start</b>)');
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // 初始拉取配额与 Telegram 状态
         fetchQuota();
+        checkTgStatus();
     </script>
 </body>
 </html>
@@ -518,6 +534,23 @@ LOGIN_PAGE = """<!DOCTYPE html>
 </html>
 """
 
+def save_tg_token(token):
+    conf_path = "/etc/vps-backup/backup.conf"
+    lines = []
+    found = False
+    if os.path.exists(conf_path):
+        with open(conf_path, "r", encoding="utf-8", errors="ignore") as f:
+            for line in f:
+                if line.strip().startswith("TG_BOT_TOKEN="):
+                    lines.append(f'TG_BOT_TOKEN="{token}"\n')
+                    found = True
+                else:
+                    lines.append(line)
+    if not found:
+        lines.append(f'\nTG_BOT_TOKEN="{token}"\n')
+    with open(conf_path, "w", encoding="utf-8") as f:
+        f.writelines(lines)
+
 class PanelHandler(http.server.BaseHTTPRequestHandler):
     def check_auth(self):
         cookie = self.headers.get("Cookie", "")
@@ -544,6 +577,25 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.send_response(302)
             self.send_header("Location", "/login")
             self.end_headers()
+            return
+
+        if self.path == "/api/tg_info":
+            conf = {"token": "", "chat_id": "", "active": False}
+            if os.path.exists("/etc/vps-backup/backup.conf"):
+                try:
+                    with open("/etc/vps-backup/backup.conf", "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            if line.strip().startswith("TG_BOT_TOKEN="):
+                                conf["token"] = line.strip().split("=", 1)[1].strip('"\'')
+                            elif line.strip().startswith("TG_CHAT_ID="):
+                                conf["chat_id"] = line.strip().split("=", 1)[1].strip('"\'')
+                except:
+                    pass
+            conf["active"] = (subprocess.getoutput("systemctl is-active vps-backup-bot 2>/dev/null").strip() == "active")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps(conf).encode("utf-8"))
             return
 
         if self.path == "/api/quota":
@@ -631,10 +683,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 res = json.loads(res_raw or "{}")
                 if res.get("ok"):
                     username = res["result"].get("username", "")
-                    # 保存到 /etc/vps-backup/backup.conf
-                    conf_path = "/etc/vps-backup/backup.conf"
-                    if os.path.exists(conf_path):
-                        subprocess.run(["sed", "-i", f"s|^TG_BOT_TOKEN=.*|TG_BOT_TOKEN=\\\"{token}\\\"|", conf_path])
+                    # 保存 Token 到 /etc/vps-backup/backup.conf
+                    save_tg_token(token)
                     # 重启 vps-backup-bot 服务
                     subprocess.run(["systemctl", "daemon-reload"])
                     subprocess.run(["systemctl", "enable", "--now", "vps-backup-bot"])
