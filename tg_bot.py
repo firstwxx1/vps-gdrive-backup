@@ -420,35 +420,25 @@ class TelegramBot:
         threading.Thread(target=worker, daemon=True).start()
 
     def run_serv00_backup(self, chat_id):
+        self.run_remote_node_backup(chat_id, "serv00-ztwotv")
+
+    def run_remote_node_backup(self, chat_id, node_name):
         def worker():
-            self.send_msg(chat_id, "⏳ <b>正在远程连接 Serv00 并触发立即备份上传至 Google Drive...</b>")
-            nodes = load_nodes()
-            serv00 = next((n for n in nodes if "serv00" in n.get("host", "") or "serv00" in n.get("name", "")), None)
-            if not serv00:
-                self.send_msg(chat_id, "⚠️ 未找到已保存的 Serv00 节点信息，请在【🌐 节点与部署】中添加。")
-                return
-            try:
-                import paramiko
-                c = paramiko.SSHClient()
-                c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-                c.connect(
-                    serv00["host"],
-                    port=int(serv00.get("port", 22)),
-                    username=serv00["user"],
-                    password=serv00["password"],
-                    timeout=15,
-                )
-                cmd = "/bin/sh ~/bin/serv00-backup.sh && ~/bin/rclone lsl gdrive:vps-backup/serv00-" + serv00["user"] + "/archive/daily/ | tail -n 5"
-                _, stdout, stderr = c.exec_command(cmd, timeout=120)
-                out = stdout.read().decode("utf-8", errors="ignore") + stderr.read().decode("utf-8", errors="ignore")
-                c.close()
-                self.send_msg(
-                    chat_id,
-                    f"✅ <b>[Serv00 备份完成]</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(out.strip()[-2000:])}</pre>",
-                    reply_markup=self.get_home_kb(),
-                )
-            except Exception as e:
-                self.send_msg(chat_id, f"❌ Serv00 远程备份失败: <code>{html_escape(str(e))}</code>")
+            self.send_msg(chat_id, f"⏳ <b>正在远程连接节点 <code>{html_escape(node_name)}</code> 并流式打包上传至 Google Drive...</b>")
+            p = subprocess.run(
+                ["python3", "/usr/local/bin/vps-backup-nodes.py", node_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                errors="ignore",
+            )
+            files_out = subprocess.getoutput(f"rclone lsl 'gdrive:vps-backup/{node_name}/archive/daily/' 2>/dev/null | tail -n 5")
+            icon = "✅" if p.returncode == 0 else "❌"
+            self.send_msg(
+                chat_id,
+                f"{icon} <b>[节点 {html_escape(node_name)} 备份结束]</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(p.stdout[-1500:])}\n{html_escape(files_out)}</pre>",
+                reply_markup=self.get_home_kb(),
+            )
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -456,24 +446,37 @@ class TelegramBot:
     def show_files_menu(self, chat_id, msg_id=None):
         self.reload()
         bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
+        nodes = load_nodes()
+        node_rows = []
+        row = [{"text": f"🖥️ 本机 ({bname})", "callback_data": "flist:daily"}]
+        for n in nodes:
+            nname = n.get("name", "")
+            if not nname:
+                continue
+            row.append({"text": f"🌐 {nname}", "callback_data": f"flist:node:{nname}"})
+            if len(row) == 2:
+                node_rows.append(row)
+                row = []
+        if row:
+            node_rows.append(row)
+
         text = (
             f"<b>📂 Google Drive 5TB 云盘文件与空间管理</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"当前节点目录: <code>gdrive:vps-backup/{bname}</code>\n"
-            f"点击下方按钮浏览各周期归档文件（支持对单个文件<b>一键恢复</b>或<b>删除</b>）："
+            f"已纳管节点: <code>{bname}</code>"
+            + ("".join([f"、<code>{html_escape(n.get('name'))}</code>" for n in nodes]))
+            + "\n点击下方对应节点或周期按钮浏览归档文件（支持对单个文件<b>一键恢复</b>或<b>删除</b>）："
         )
         kb = {
             "inline_keyboard": [
                 [
-                    {"text": "📊 5TB 容量与节点占用统计", "callback_data": "act:quota_detail"},
+                    {"text": "📊 5TB 容量与全节点备份统计", "callback_data": "act:quota_detail"},
                 ],
+                *node_rows,
                 [
-                    {"text": "📅 每日备份 (daily)", "callback_data": "flist:daily"},
-                    {"text": "📆 每周备份 (weekly)", "callback_data": "flist:weekly"},
-                ],
-                [
-                    {"text": "🗓️ 每月备份 (monthly)", "callback_data": "flist:monthly"},
-                    {"text": "🌐 Serv00 备份文件", "callback_data": "flist:serv00"},
+                    {"text": "📅 本机每日 (daily)", "callback_data": "flist:daily"},
+                    {"text": "📆 本机每周 (weekly)", "callback_data": "flist:weekly"},
+                    {"text": "🗓️ 本机每月 (monthly)", "callback_data": "flist:monthly"},
                 ],
                 [
                     {"text": "🧹 按策略清理过期备份", "callback_data": "act:prune_now"},
@@ -496,6 +499,9 @@ class TelegramBot:
         bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
         if tier == "serv00":
             rel_dir = "serv00-ztwotv/archive/daily"
+        elif tier.startswith("node:"):
+            nname = tier.split(":", 1)[1]
+            rel_dir = f"{nname}/archive/daily"
         else:
             rel_dir = f"{bname}/archive/{tier}"
 
@@ -707,27 +713,36 @@ class TelegramBot:
 
     # ==================== 4. 多节点管理与新机一键部署 ====================
     def show_nodes_menu(self, chat_id, msg_id=None):
+        self.reload()
+        bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
         nodes = load_nodes()
-        node_lines = []
+        node_lines = [f"0. <b>{html_escape(bname)}</b> (<code>本机海外主控节点</code>)"]
+        node_btn_rows = []
         for idx, n in enumerate(nodes, 1):
-            node_lines.append(f"{idx}. <b>{html_escape(n.get('name'))}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}:{n.get('port', 22)}</code>)")
-        body = "\n".join(node_lines) if node_lines else "<i>暂未登记远程节点</i>"
+            nname = n.get("name", f"vps-{n.get('host')}")
+            node_lines.append(f"{idx}. <b>{html_escape(nname)}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}:{n.get('port', 22)}</code>)")
+            node_btn_rows.append([
+                {"text": f"⚡ 立即备份 {nname}", "callback_data": f"nbk:{nname}"},
+                {"text": f"📂 查看备份 {nname}", "callback_data": f"flist:node:{nname}"},
+            ])
+        body = "\n".join(node_lines)
         text = (
             f"<b>🌐 多服务器节点管理与一键部署</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>已登记的受控节点 ({len(nodes)} 台)</b>:\n{body}\n"
+            f"<b>已纳管服务器 ({len(nodes) + 1} 台)</b>:\n{body}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 可直接点击<b>【➕ 部署新 VPS 节点】</b>，将本机的 5TB Google Drive 授权与自动备份脚本一键安装到任何新服务器上！"
+            f"💡 支持<b>国内无外网 VPS (SSH 隧道流式拉取)</b>、<b>非 root (sudo) 用户</b>及 <b>Serv00</b>，所有节点均直接流式归档至 5TB Google Drive！"
         )
         kb = {
             "inline_keyboard": [
+                *node_btn_rows,
                 [
-                    {"text": "➕ 一键部署新 VPS 节点", "callback_data": "act:node_add_prompt"},
-                    {"text": "☁️ 云盘上所有主机目录", "callback_data": "act:node_cloud_dirs"},
+                    {"text": "➕ 一键添加/部署新 VPS 节点", "callback_data": "act:node_add_prompt"},
+                    {"text": "☁️ 云盘全节点备份总览", "callback_data": "act:node_cloud_dirs"},
                 ],
                 [
                     {"text": "🛰️ 批量检测所有节点连通性", "callback_data": "act:node_ping_all"},
-                    {"text": "⚡ 触发所有节点立即备份", "callback_data": "act:node_backup_all"},
+                    {"text": "🚀 全节点一键并发备份", "callback_data": "act:node_backup_all"},
                 ],
                 [
                     {"text": "🔙 返回主控台", "callback_data": "nav:home"},
@@ -741,60 +756,38 @@ class TelegramBot:
 
     def deploy_remote_vps(self, chat_id, host, port, user, password):
         def worker():
-            self.send_msg(chat_id, f"🚀 <b>开始自动部署新节点:</b> <code>{user}@{host}:{port}</code> ...")
+            self.send_msg(chat_id, f"🚀 <b>开始接入并验证新节点:</b> <code>{user}@{host}:{port}</code> ...")
             try:
                 import paramiko
                 c = paramiko.SSHClient()
                 c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
                 c.connect(host, port=int(port), username=user, password=password, timeout=15)
-
-                remote_tmp = "/tmp/vps-backup-installer"
-                c.exec_command(f"rm -rf {remote_tmp} && mkdir -p -m 700 {remote_tmp}")
-                time.sleep(1)
-
-                sftp = c.open_sftp()
-                for local_f in ["/usr/local/bin/vps-backup", "/etc/vps-backup/backup.conf.example"]:
-                    if os.path.exists(local_f):
-                        sftp.put(local_f, f"{remote_tmp}/{os.path.basename(local_f)}")
-                rc_conf = os.path.expanduser("~/.config/rclone/rclone.conf")
-                if os.path.exists(rc_conf):
-                    sftp.put(rc_conf, f"{remote_tmp}/rclone.conf")
-                sftp.close()
-
-                install_cmd = (
-                    f"cd {remote_tmp} && "
-                    "(command -v rclone >/dev/null || curl -fsSL https://rclone.org/install.sh | bash) && "
-                    "install -m 755 vps-backup /usr/local/bin/vps-backup && "
-                    "mkdir -p ~/.config/rclone && cp -f rclone.conf ~/.config/rclone/rclone.conf && chmod 600 ~/.config/rclone/rclone.conf && "
-                    "mkdir -p /etc/vps-backup && cp -n backup.conf.example /etc/vps-backup/backup.conf && "
-                    "sed -i 's/^STREAM_UPLOAD=.*/STREAM_UPLOAD=\"true\"/' /etc/vps-backup/backup.conf && "
-                    "(crontab -l 2>/dev/null | grep -v vps-backup ; echo \"$((RANDOM % 60)) 3 * * * /usr/local/bin/vps-backup >/dev/null 2>&1\") | crontab - && "
-                    "rm -rf " + remote_tmp + " && /usr/local/bin/vps-backup test"
-                )
-                _, stdout, stderr = c.exec_command(install_cmd, timeout=180)
-                out = stdout.read().decode("utf-8", errors="ignore") + stderr.read().decode("utf-8", errors="ignore")
+                _, stdout, _ = c.exec_command("hostname; uname -sr; df -h / | tail -n 1", timeout=15)
+                sys_info = stdout.read().decode("utf-8", errors="ignore").strip()
                 c.close()
 
-                # 保存到 nodes.json
+                node_name = f"vps-{host}"
                 nodes = load_nodes()
                 nodes = [n for n in nodes if n.get("host") != host]
                 nodes.append({
-                    "name": f"vps-{host}",
+                    "name": node_name,
                     "host": host,
                     "port": int(port),
                     "user": user,
                     "password": password,
-                    "type": "linux",
+                    "type": "serv00" if "serv00" in host else "linux",
                 })
                 save_nodes(nodes)
 
                 self.send_msg(
                     chat_id,
-                    f"✅ <b>[新节点 {html_escape(host)} 部署成功]</b>\n已自动加入节点列表并设置每日凌晨自动备份！\n\n<pre>{html_escape(out[-1800:])}</pre>",
-                    reply_markup=self.get_home_kb(),
+                    f"✅ <b>[新节点 {html_escape(node_name)} 接入成功]</b>\n"
+                    f"<pre>{html_escape(sys_info)}</pre>\n"
+                    f"⏳ <b>正在立即为该节点执行首次全量流式备份至 Google Drive...</b>",
                 )
+                self.run_remote_node_backup(chat_id, node_name)
             except Exception as e:
-                self.send_msg(chat_id, f"❌ 部署失败: <code>{html_escape(str(e))}</code>")
+                self.send_msg(chat_id, f"❌ 节点连接或部署失败: <code>{html_escape(str(e))}</code>")
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1046,10 +1039,10 @@ class TelegramBot:
             self.handle_file_delete(chat_id, msg_id, fid)
         elif data == "act:quota_detail":
             about = subprocess.getoutput("rclone about gdrive: 2>/dev/null")
-            dirs = subprocess.getoutput("rclone lsf --dirs-only gdrive:vps-backup/ 2>/dev/null")
+            files = subprocess.getoutput("rclone lsl gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
             self.edit_msg(
                 chat_id, msg_id,
-                f"<b>📊 Google Drive 5TB 容量与节点目录</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(about)}</pre>\n<b>云盘已备份节点目录:</b>\n<pre>{html_escape(dirs)}</pre>",
+                f"<b>📊 Google Drive 5TB 容量与全节点备份文件</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(about)}</pre>\n<b>云盘已归档备份包:</b>\n<pre>{html_escape(files or '暂无文件')}</pre>",
                 reply_markup={"inline_keyboard": [[{"text": "🔙 返回文件管理", "callback_data": "nav:files"}]]},
             )
         elif data == "act:prune_now":
@@ -1076,12 +1069,15 @@ class TelegramBot:
             self.toggle_db_container(chat_id, msg_id, cid)
 
         # 节点与部署动作
+        elif data.startswith("nbk:"):
+            nname = data.split(":", 1)[1]
+            self.run_remote_node_backup(chat_id, nname)
         elif data == "act:node_cloud_dirs":
-            out = subprocess.getoutput("/usr/local/bin/vps-backup list 2>/dev/null")
+            files = subprocess.getoutput("rclone lsl gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%8.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
             self.edit_msg(
                 chat_id, msg_id,
-                f"<b>☁️ 云盘上的各节点与备份概览</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(out[-3000:])}</pre>",
-                reply_markup={"inline_keyboard": [[{"text": "🔙 返回节点中心", "callback_data": "nav:nodes"}]]},
+                f"<b>☁️ 云盘全节点备份文件总览 (gdrive:vps-backup/)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(files[-3000:] or '暂无备份文件')}</pre>",
+                reply_markup={"inline_keyboard": [[{"text": "🔄 刷新列表", "callback_data": "act:node_cloud_dirs"}, {"text": "🔙 返回节点中心", "callback_data": "nav:nodes"}]]},
             )
         elif data == "act:node_add_prompt":
             self.user_state[chat_id] = {"mode": "deploy_node"}
@@ -1107,7 +1103,7 @@ class TelegramBot:
             )
         elif data == "act:node_backup_all":
             self.run_backup_task(chat_id, "run")
-            self.run_serv00_backup(chat_id)
+            self.run_remote_node_backup(chat_id, "all")
 
         # 配置修改动作
         elif data == "cfg:toggle_stream":
