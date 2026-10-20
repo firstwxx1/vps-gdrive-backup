@@ -707,42 +707,56 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
         if self.path == "/api/deploy":
             data = json.loads(post_data or "{}")
-            ip = data.get("ip", "")
-            port = data.get("port", "22")
-            user = data.get("user", "root")
+            ip = data.get("ip", "").strip()
+            port = int(data.get("port", "22") or 22)
+            user = data.get("user", "root").strip() or "root"
             pw = data.get("pass", "")
 
-            deploy_cmd = f"""python3 -c "
-import paramiko, sys, os
-client = paramiko.SSHClient()
-client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-try:
-    print(f'[*] 连接到 {user}@{ip}:{port} ...')
-    client.connect('{ip}', port=int('{port}'), username='{user}', password='''{pw}''' if '''{pw}''' else None, timeout=15)
-    print('[+] 连接成功，创建临时安装目录...')
-    remote_tmp = '/tmp/vps-backup-installer'
-    client.exec_command(f'rm -rf {{remote_tmp}} && mkdir -p -m 700 {{remote_tmp}}')
-    sftp = client.open_sftp()
-    print('[+] 传输程序文件与 Google Drive 5TB 授权凭证...')
-    for f in ['/usr/local/bin/vps-backup', '/etc/vps-backup/backup.conf.example']:
-        if os.path.exists(f): sftp.put(f, f'{{remote_tmp}}/' + os.path.basename(f))
-    rc_conf = os.path.expanduser('~/.config/rclone/rclone.conf')
-    if os.path.exists(rc_conf): sftp.put(rc_conf, f'{{remote_tmp}}/rclone.conf')
-    sftp.close()
-    print('[+] 远程执行自动配置与安装...')
-    cmd = f'cd {{remote_tmp}} && curl -fsSL https://rclone.org/install.sh | bash && install -m 755 vps-backup /usr/local/bin/ && mkdir -p ~/.config/rclone && cp -f rclone.conf ~/.config/rclone/ && mkdir -p /etc/vps-backup && cp -n backup.conf.example /etc/vps-backup/backup.conf && (crontab -l 2>/dev/null | grep -v vps-backup ; echo \\\"$((RANDOM % 60)) 3 * * * /usr/local/bin/vps-backup >/dev/null 2>&1\\\") | crontab - && rm -rf {{remote_tmp}}'
-    stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
-    for line in stdout: print('  ' + line.rstrip())
-    print('[+] 测试远程服务器 Google Drive 读写...')
-    stdin, stdout, stderr = client.exec_command('/usr/local/bin/vps-backup test', get_pty=True)
-    for line in stdout: print('  ' + line.rstrip())
-    client.close()
-    print('[OK] 部署成功完成！已纳入每日凌晨自动备份计划。')
-except Exception as e:
-    print(f'[ERROR] 部署失败: {{e}}')
-"
-"""
-            output = subprocess.getoutput(deploy_cmd)
+            try:
+                import paramiko
+                c = paramiko.SSHClient()
+                c.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+                c.connect(ip, port=port, username=user, password=pw, timeout=15)
+                _, stdout, _ = c.exec_command("hostname; uname -sr; df -h / | tail -n 1", timeout=15)
+                sys_info = stdout.read().decode("utf-8", errors="ignore").strip()
+                c.close()
+
+                node_name = f"vps-{ip}"
+                nodes_file = "/etc/vps-backup/nodes.json"
+                nodes = []
+                if os.path.exists(nodes_file):
+                    try:
+                        with open(nodes_file, "r", encoding="utf-8") as f:
+                            nodes = json.load(f)
+                    except Exception:
+                        nodes = []
+                nodes = [n for n in nodes if n.get("host") != ip]
+                nodes.append({
+                    "name": node_name,
+                    "host": ip,
+                    "port": port,
+                    "user": user,
+                    "password": pw,
+                    "type": "serv00" if "serv00" in ip else "linux",
+                })
+                os.makedirs(os.path.dirname(nodes_file), exist_ok=True)
+                with open(nodes_file, "w", encoding="utf-8") as f:
+                    json.dump(nodes, f, ensure_ascii=False, indent=2)
+                os.chmod(nodes_file, 0o600)
+
+                subprocess.Popen(
+                    ["python3", "/usr/local/bin/vps-backup-nodes.py", node_name],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                output = (
+                    f"[+] SSH 认证通过！节点信息:\n{sys_info}\n"
+                    f"[+] 已登记到多节点管理列表 ({node_name}) 并加入每日凌晨自动流式备份计划！\n"
+                    f"[+] 已在后台启动首次跨国 SSH 流式打包上传 (无视国内墙限制、不占目标机本地磁盘)，稍后可在云盘列表中查看！"
+                )
+            except Exception as e:
+                output = f"[ERROR] 连接或部署失败: {e}"
+
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
