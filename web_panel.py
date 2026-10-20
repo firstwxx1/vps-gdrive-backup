@@ -301,6 +301,18 @@ HTML_PAGE = """<!DOCTYPE html>
             </div>
         </div>
 
+        <div class="deploy-section" style="margin-top: 24px;">
+            <div class="deploy-title">🤖 启用 Telegram 手机控制机器人面板</div>
+            <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;">
+                在 Telegram 中向 <b>@BotFather</b> 发送 <code>/newbot</code> 创建机器人获取 Token，填入下方即可随时在手机上点击按钮管理备份、查询5TB配额并接收报警。
+            </p>
+            <div style="display: flex; gap: 12px; margin-bottom: 12px; max-width: 600px;">
+                <input type="text" id="tg-token" placeholder="输入形如 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ 的 Token" style="flex: 1; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; color: #fff; outline: none;">
+                <button class="btn-primary" onclick="setupTelegram()">绑定并启动机器人</button>
+            </div>
+            <div id="tg-status" style="font-size: 13px; color: var(--text-dim);"></div>
+        </div>
+
         <div class="deploy-section">
             <div class="deploy-title">🌐 一键部署新 VPS 节点到 Google Drive 自动备份</div>
             <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;">
@@ -379,6 +391,32 @@ HTML_PAGE = """<!DOCTYPE html>
             if (!cmd) return;
             termInput.value = '';
             runCmd(cmd);
+        }
+
+        async function setupTelegram() {
+            const token = document.getElementById('tg-token').value.trim();
+            const statusEl = document.getElementById('tg-status');
+            if (!token) {
+                alert('请输入 Telegram Bot Token');
+                return;
+            }
+            statusEl.innerHTML = '<span style="color: #38bdf8;">正在验证 Token 并启动守护服务...</span>';
+            try {
+                const res = await fetch('/api/telegram', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ token: token })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    statusEl.innerHTML = `<span style="color: var(--success); font-weight: bold;">✅ 机器人已启动！请打开 Telegram 搜索 <u>@${data.username}</u> 发送 /start 即可直接使用！</span>`;
+                    appendTerm(`\\n[Telegram] 机器人 @${data.username} 已激活，去 Telegram 点击 /start 即可打开手机面板！\\n`);
+                } else {
+                    statusEl.innerHTML = `<span style="color: var(--danger);">❌ 验证失败: ${data.error || 'Token无效'}</span>`;
+                }
+            } catch(e) {
+                statusEl.innerHTML = `<span style="color: var(--danger);">❌ 请求异常: ${e}</span>`;
+            }
         }
 
         async function startDeploy() {
@@ -570,6 +608,40 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"output": output}).encode("utf-8"))
+            return
+
+        if self.path == "/api/telegram":
+            data = json.loads(post_data or "{}")
+            token = data.get("token", "").strip()
+            # 验证 token
+            url = f"https://api.telegram.org/bot{token}/getMe"
+            try:
+                with urllib.request.urlopen(url, timeout=10) as r:
+                    res = json.loads(r.read().decode('utf-8'))
+                    if res.get("ok"):
+                        username = res["result"].get("username", "")
+                        # 保存到 /etc/vps-backup/backup.conf
+                        conf_path = "/etc/vps-backup/backup.conf"
+                        if os.path.exists(conf_path):
+                            subprocess.run(["sed", "-i", f"s|^TG_BOT_TOKEN=.*|TG_BOT_TOKEN=\\\"{token}\\\"|", conf_path])
+                        # 重启 vps-backup-bot 服务
+                        subprocess.run(["systemctl", "daemon-reload"])
+                        subprocess.run(["systemctl", "enable", "--now", "vps-backup-bot"])
+                        subprocess.run(["systemctl", "restart", "vps-backup-bot"])
+                        self.send_response(200)
+                        self.send_header("Content-Type", "application/json")
+                        self.end_headers()
+                        self.wfile.write(json.dumps({"ok": True, "username": username}).encode("utf-8"))
+                        return
+                    else:
+                        error_msg = res.get("description", "Token 无效")
+            except Exception as e:
+                error_msg = str(e)
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": error_msg}).encode("utf-8"))
             return
 
         if self.path == "/api/deploy":

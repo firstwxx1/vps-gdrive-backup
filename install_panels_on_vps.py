@@ -4,71 +4,54 @@ import sys
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def install_panels():
-    vps_ip = os.environ.get("VPS_IP", "45.130.166.10")
-    vps_pass = os.environ.get("VPS_PASSWORD", "")
-    if not vps_pass:
-        import getpass
-        vps_pass = getpass.getpass(f"请输入 VPS ({vps_ip}) root 密码: ")
-
+def deploy_panels_and_bot():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print(f"[*] 连接到 {vps_ip} ...")
-    client.connect(vps_ip, port=22, username="root", password=vps_pass, timeout=15)
+    print("[*] 连接到 45.130.166.10 ...")
+    client.connect("45.130.166.10", port=22, username="root", password="Hsb35901147411", timeout=15)
     
     sftp = client.open_sftp()
     
-    # 1. 上传 CLI 终端面板脚本
-    print("[+] 上传交互式 CLI 终端面板 (vps-backup-panel)...")
+    # 1. 上传各面板脚本
+    print("[+] 上传更新后的面板与 Telegram 机器人脚本...")
     sftp.put(os.path.join(BASE_DIR, "vps-backup-panel.sh"), "/usr/local/bin/vps-backup-panel")
-    
-    # 2. 上传 Web 终端面板服务
-    print("[+] 上传 Web 终端管理面板服务...")
     sftp.put(os.path.join(BASE_DIR, "web_panel.py"), "/usr/local/bin/vps-backup-web.py")
-    
+    sftp.put(os.path.join(BASE_DIR, "tg_bot.py"), "/usr/local/bin/vps-backup-bot.py")
     sftp.close()
     
-    # 3. 赋予权限 & 写入 systemd 服务
     cmd = """
-    chmod +x /usr/local/bin/vps-backup-panel /usr/local/bin/vps-backup-web.py
-    
-    # 配置 web.conf 默认密码
-    mkdir -p /etc/vps-backup
-    if [ ! -f /etc/vps-backup/web.conf ]; then
-        echo 'PASSWORD="Hsb35901147411"' > /etc/vps-backup/web.conf
-        chmod 600 /etc/vps-backup/web.conf
-    fi
-    
-    # 创建 systemd 服务
-    cat > /etc/systemd/system/vps-backup-web.service <<EOF
+    chmod +x /usr/local/bin/vps-backup-panel /usr/local/bin/vps-backup-web.py /usr/local/bin/vps-backup-bot.py
+
+    # 部署 Telegram Bot 服务
+    cat > /etc/systemd/system/vps-backup-bot.service <<EOF
 [Unit]
-Description=VPS Google Drive Backup Web Terminal Panel
+Description=VPS Google Drive Backup Telegram Bot Daemon
 After=network.target
 
 [Service]
 Type=simple
 User=root
-ExecStart=/usr/bin/python3 /usr/local/bin/vps-backup-web.py
+ExecStart=/usr/bin/python3 /usr/local/bin/vps-backup-bot.py
 Restart=always
-RestartSec=5
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    systemctl enable --now vps-backup-web
-    systemctl status vps-backup-web --no-pager | head -n 10
+    systemctl restart vps-backup-web
+    systemctl enable vps-backup-bot 2>/dev/null || true
+    echo "Web & Bot 服务状态："
+    systemctl status vps-backup-web --no-pager | head -n 5
     """
-    
-    print("[+] 安装 systemd 服务并启动...")
     stdin, stdout, stderr = client.exec_command(cmd)
     out = stdout.read().decode('utf-8', errors='ignore')
     for line in out.splitlines():
-        print("  " + line.encode('ascii', errors='replace').decode('ascii'))
+        print("  " + line)
         
     client.close()
-    print("[OK] 安装完成！")
+    print("[OK] VPS 上的面板与 Telegram Bot 服务已更新部署完成！")
 
 if __name__ == '__main__':
-    install_panels()
+    deploy_panels_and_bot()

@@ -99,6 +99,9 @@ ln -sf "$BIN_DIR/vps-backup-panel" "$BIN_DIR/backup-panel"
 download "web_panel.py" "$BIN_DIR/vps-backup-web.py"
 chmod +x "$BIN_DIR/vps-backup-web.py"
 
+download "tg_bot.py" "$BIN_DIR/vps-backup-bot.py"
+chmod +x "$BIN_DIR/vps-backup-bot.py"
+
 download "backup.conf.example" "$CONF_DIR/backup.conf.example"
 
 # 4. 生成默认配置文件（若不存在）
@@ -173,6 +176,23 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+
+    cat > /etc/systemd/system/vps-backup-bot.service <<EOF
+[Unit]
+Description=VPS Google Drive Backup Telegram Bot Daemon
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/python3 $BIN_DIR/vps-backup-bot.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
     systemctl daemon-reload
     systemctl enable --now vps-backup-web >/dev/null 2>&1 || true
 fi

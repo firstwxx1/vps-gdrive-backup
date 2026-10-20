@@ -166,6 +166,51 @@ run_test() {
     pause
 }
 
+configure_telegram() {
+    header
+    echo -e "${BOLD}${CYAN}=== 配置 Telegram 机器人控制面板 ===${NC}\n"
+    echo -e "你可以通过手机 Telegram 随时控制备份、查看5TB云盘容量、查看实时日志与接收报警！"
+    echo -e "获取步骤："
+    echo -e "  1. 在 Telegram 搜索并打开 ${YELLOW}@BotFather${NC}"
+    echo -e "  2. 发送 ${GREEN}/newbot${NC}，按提示给机器人起个名字和用户名"
+    echo -e "  3. BotFather 会给你一串 Token，格式如: ${BLUE}123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ${NC}"
+    echo
+    read -r -p "请输入你的 Telegram Bot Token: " new_token
+    new_token=$(echo "$new_token" | tr -d '[:space:]')
+    if [ -z "$new_token" ]; then
+        echo -e "${YELLOW}未输入 Token，操作已取消${NC}"
+        pause
+        return
+    fi
+
+    echo -e "\n[*] 正在验证 Bot Token 有效性..."
+    bot_info=$(curl -s --max-time 10 "https://api.telegram.org/bot${new_token}/getMe")
+    if ! echo "$bot_info" | grep -q '"ok":true'; then
+        echo -e "${RED}[x] 验证失败！请检查 Token 是否输入正确，或 Telegram 服务连通性。${NC}"
+        echo "错误信息: $bot_info"
+        pause
+        return
+    fi
+
+    bot_username=$(python3 -c "import json; print(json.loads('''$bot_info''')['result'].get('username', ''))" 2>/dev/null || echo "你的机器人")
+    echo -e "${GREEN}[+] 验证成功！机器人名称: @${bot_username}${NC}"
+
+    # 保存配置到 backup.conf
+    sed -i "s|^TG_BOT_TOKEN=.*|TG_BOT_TOKEN=\"${new_token}\"|" "$CONFIG_FILE" 2>/dev/null || echo "TG_BOT_TOKEN=\"${new_token}\"" >> "$CONFIG_FILE"
+    
+    # 启动/重启 Telegram 机器人守护服务
+    systemctl daemon-reload 2>/dev/null || true
+    systemctl enable --now vps-backup-bot 2>/dev/null || true
+    systemctl restart vps-backup-bot 2>/dev/null || true
+
+    echo -e "\n${BOLD}${GREEN}🎉 Telegram 机器人控制面板已成功激活并启动！${NC}"
+    echo -e "${YELLOW}👉 快速启用步骤：${NC}"
+    echo -e "  1. 打开 Telegram，搜索你的机器人：${BOLD}@${bot_username}${NC}"
+    echo -e "  2. 点击底部的 ${GREEN}【START】${NC} 或发送 ${GREEN}/start${NC}"
+    echo -e "  3. 机器人将自动将你绑定为管理员，并弹出交互式管理面板！"
+    pause
+}
+
 manage_web() {
     header
     echo -e "${BOLD}${CYAN}=== Web 终端管理面板管理 ===${NC}\n"
@@ -203,12 +248,13 @@ main_menu() {
         echo -e "  ${GREEN}[6]${NC} 🌐 一键部署新 VPS 节点 (批量纳入自动备份)"
         echo -e "  ${GREEN}[7]${NC} ⚙️ 编辑备份配置 (修改备份目录/数据库/策略)"
         echo -e "  ${GREEN}[8]${NC} 🩺 运行自检测试 (测试读写与 Telegram 通知)"
-        echo -e "  ${GREEN}[9]${NC} 💻 Web 浏览器终端管理面板开关"
+        echo -e "  ${GREEN}[9]${NC} 🤖 配置并启用 Telegram 手机控制面板 (内联交互按钮)"
+        echo -e "  ${GREEN}[W]${NC} 💻 Web 浏览器终端管理面板开关"
         echo
         echo -e "  ${RED}[0]${NC} 退出面板"
         echo -e "${CYAN}------------------------------------------------------------------------${NC}"
-        read -r -p "请输入选项编号 [0-9]: " choice
-        case "$choice" in
+        read -r -p "请输入选项编号: " choice
+        case "${choice,,}" in
             1) run_now ;;
             2) show_quota ;;
             3) list_backups ;;
@@ -217,8 +263,9 @@ main_menu() {
             6) deploy_new_vps ;;
             7) edit_config ;;
             8) run_test ;;
-            9) manage_web ;;
-            0) clear_screen; exit 0 ;;
+            9|t) configure_telegram ;;
+            w) manage_web ;;
+            0|q) clear_screen; exit 0 ;;
             *) echo -e "${RED}无效输入，请重新输入${NC}"; sleep 1 ;;
         esac
     done
