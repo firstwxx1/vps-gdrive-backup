@@ -1,0 +1,35 @@
+# 敏感认证与Token（切勿提交！）
+rclone.conf
+*.conf
+!backup.conf.example
+token.tmp.txt
+hosts.txt
+configs/*.conf
+*.key
+*.pem
+
+# 二进制与大文件
+rclone.exe
+*.exe
+*.zip
+*.tar
+*.tar.gz
+*.tar.zst
+*.enc
+
+# 日志与临时文件
+*.log
+*.tmp
+*.bak*
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

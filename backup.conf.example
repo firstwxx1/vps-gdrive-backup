@@ -1,0 +1,125 @@
+# =====================================================================
+#  vps-backup 配置文件   （位置：/etc/vps-backup/backup.conf，权限 600）
+#  本文件是 bash 语法：等号两边不能有空格，数组用 ( ... )
+# =====================================================================
+
+# ---------------------------- 云盘 ----------------------------
+# rclone 里配置的远端名称（rclone listremotes 可查看，不带冒号）
+# 如果想让同步模式的文件也加密，可以在 rclone 里建一个 crypt 远端包住 gdrive，然后填 crypt 远端名
+RCLONE_REMOTE="gdrive"
+# 云盘上的根目录，所有 VPS 都放在它下面：gdrive:vps-backup/<主机名>/...
+REMOTE_BASE="vps-backup"
+# 本机在云盘上的目录名，留空 = 主机名。多台 VPS 主机名相同时务必手动区分！
+BACKUP_NAME=""
+# 指定 rclone 配置文件（留空用默认 ~/.config/rclone/rclone.conf）
+RCLONE_CONFIG_FILE=""
+# 上传限速，例如 "20M"（20 MB/s）或 "08:00,5M 23:00,off"，留空不限速
+BWLIMIT=""
+# 清理旧备份时是否放进 Google Drive 回收站（false = 直接永久删除，立即释放空间）
+DRIVE_USE_TRASH="false"
+# 额外的 rclone 参数，例如 "--tpslimit 8"
+RCLONE_EXTRA_FLAGS=""
+
+# ---------------------------- 归档模式 ----------------------------
+# 打包压缩（可加密）后上传，保留多个历史版本，数据库导出也包含在归档里
+ARCHIVE_ENABLED="true"
+
+# 要备份的目录/文件（绝对路径）。填 "/" 表示整个系统（会自动排除 /proc /sys /dev /tmp 等）
+ARCHIVE_PATHS=(
+    /etc
+    /root
+    /home
+    # /var/www
+    # /opt
+    # /var/lib/docker/volumes     # Docker 卷（数据库容器建议用下方 DOCKER_* 导出）
+    # /usr/local/nginx/conf
+)
+
+# 排除规则（tar 通配符）。不带 / 的规则匹配任意层级的同名文件/目录
+ARCHIVE_EXCLUDES=(
+    "*.log"
+    "*.tmp"
+    "*.swp"
+    "node_modules"
+    ".cache"
+    "__pycache__"
+    # "/home/*/Downloads"
+    # "/var/www/*/runtime/cache"
+)
+
+# 压缩方式：auto（有 zstd 用 zstd，否则 gzip）| zstd | gzip | none
+COMPRESSION="auto"
+# 压缩级别，留空默认（zstd=3, gzip=6）
+COMPRESS_LEVEL=""
+
+# 加密密码（AES-256，openssl 1.1.1+）。留空 = 不加密
+# ⚠️ 密码丢了备份就无法恢复！请另外妥善保存
+ENCRYPT_PASSWORD=""
+
+# 流式上传：边打包边上传，不占用本地磁盘（适合硬盘小的 VPS）
+# 缺点：上传中途网络断开整个备份失败，不能断点重试
+STREAM_UPLOAD="false"
+# 非流式模式下打包临时文件存放位置，需要有足够空间
+TMP_DIR="/var/tmp"
+
+# 保留策略（天）。每天的备份放 daily；每周自动复制一份到 weekly；每月第一次备份复制到 monthly
+# （周/月备份是 Google Drive 服务端复制，不消耗 VPS 流量）。设为 0 关闭 weekly / monthly
+KEEP_DAILY_DAYS=7
+KEEP_WEEKLY_DAYS=28
+KEEP_MONTHLY_DAYS=180
+
+# ---------------------------- 同步模式 ----------------------------
+# rclone 增量同步：只传有变化的文件，云盘上是可直接浏览的原始文件
+# 被修改/删除的旧版本会移动到 sync/history/<时间>/ 下，保留 SYNC_KEEP_HISTORY_DAYS 天
+SYNC_ENABLED="false"
+SYNC_PATHS=(
+    # /var/www
+    # /home/data
+)
+# rclone 过滤规则（相对于每个同步目录），例如 "*.log"  "cache/**"
+SYNC_EXCLUDES=(
+    "*.log"
+    "node_modules/**"
+)
+SYNC_TRANSFERS=4
+SYNC_KEEP_HISTORY_DAYS=30
+
+# ---------------------------- 数据库（导出后打进归档） ----------------------------
+# MySQL / MariaDB（本机安装）
+MYSQL_ENABLED="false"
+MYSQL_HOST=""            # 留空 = 本机 socket
+MYSQL_PORT=""
+MYSQL_USER=""            # 留空 = root 通过 socket 免密 / ~/.my.cnf
+MYSQL_PASSWORD=""
+MYSQL_DATABASES="all"    # all 或 "db1 db2"
+
+# PostgreSQL（本机安装，以 postgres 系统用户执行）
+PG_ENABLED="false"
+PG_USER="postgres"
+PG_DATABASES="all"       # all 或 "db1 db2"
+
+# Docker 容器里的数据库（填容器名）。自动读取容器环境变量里的 root 密码 / POSTGRES_USER
+DOCKER_MYSQL_CONTAINERS=(
+    # mysql
+    # mariadb
+)
+DOCKER_PG_CONTAINERS=(
+    # postgres
+)
+
+# ---------------------------- 钩子 ----------------------------
+# 备份前/后执行的命令，例如停止/启动某服务、导出 Redis
+PRE_HOOK=""     # 例如 "redis-cli save"
+POST_HOOK=""
+
+# ---------------------------- 日志 & 通知 ----------------------------
+LOG_FILE="/var/log/vps-backup.log"
+
+# Telegram 通知：找 @BotFather 创建机器人拿 token；给机器人发条消息后访问
+# https://api.telegram.org/bot<TOKEN>/getUpdates 查看 chat.id
+TG_BOT_TOKEN=""
+TG_CHAT_ID=""
+# 成功时也通知（默认只在失败时通知）
+NOTIFY_ON_SUCCESS="false"
+# 如果 VPS 访问 Telegram 需要反代，可改成自己的反代地址
+TG_API="https://api.telegram.org"
