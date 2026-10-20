@@ -233,17 +233,19 @@ class TelegramBot:
             self.last_token = self.token
             print("[+] Telegram 左下角命令菜单注册成功！")
             if self.admin_id:
-                self.show_home(self.admin_id, with_reply_kb=True)
+                self.send_msg(self.admin_id, "✅ <b>已为你收起底部大键盘</b>（你可随时通过消息内按钮或左下角 <b>Menu</b> 按钮操作）", reply_markup={"remove_keyboard": True})
+                self.show_home(self.admin_id, with_reply_kb=False)
 
     def get_reply_keyboard(self):
         return {
             "keyboard": [
                 [{"text": "🚀 备份与恢复"}, {"text": "📂 云盘文件管理"}, {"text": "🌐 节点与部署"}],
                 [{"text": "🗄️ 数据库热备"}, {"text": "🐳 Docker 管理"}, {"text": "⚙️ 策略与配置"}],
-                [{"text": "🖥️ 服务器状态"}, {"text": "💻 快捷运维/终端"}, {"text": "🏠 主控面板"}],
+                [{"text": "🖥️ 服务器状态"}, {"text": "💻 快捷运维/终端"}, {"text": "🔽 收起底部键盘"}],
             ],
             "resize_keyboard": True,
-            "is_persistent": True,
+            "is_persistent": False,
+            "one_time_keyboard": True,
         }
 
     def send_msg(self, chat_id, text, reply_markup=None, parse_mode="HTML"):
@@ -304,6 +306,10 @@ class TelegramBot:
                 [
                     {"text": "⚡ 立即一键全量备份", "callback_data": "act:bk_run"},
                     {"text": "🔄 刷新主控台", "callback_data": "nav:home"},
+                ],
+                [
+                    {"text": "⌨️ 呼出底部按键", "callback_data": "act:kb_show"},
+                    {"text": "🔽 收起底部按键", "callback_data": "act:kb_hide"},
                 ],
             ]
         }
@@ -1004,6 +1010,10 @@ class TelegramBot:
             self.show_status_menu(chat_id, msg_id)
         elif data == "nav:ops":
             self.show_ops_menu(chat_id, msg_id)
+        elif data == "act:kb_show":
+            self.send_msg(chat_id, "⌨️ <b>已弹出底部快捷键盘</b>（点击右下角「🔽 收起底部键盘」或输入框右侧键盘图标即可收起）", reply_markup=self.get_reply_keyboard())
+        elif data == "act:kb_hide":
+            self.send_msg(chat_id, "🔽 <b>底部大键盘已彻底收起！</b>", reply_markup={"remove_keyboard": True})
 
         # 备份动作
         elif data == "act:bk_run":
@@ -1273,6 +1283,11 @@ class TelegramBot:
             "🖥️ 服务器状态": lambda: self.show_status_menu(chat_id),
             "💻 快捷运维/终端": lambda: self.show_ops_menu(chat_id),
         }
+        if text in ("🔽 收起底部键盘", "/hide", "收起"):
+            self.user_state.pop(chat_id, None)
+            self.send_msg(chat_id, "🔽 <b>底部大键盘已彻底收起！</b>", reply_markup={"remove_keyboard": True})
+            return
+
         if text in bottom_map:
             self.user_state.pop(chat_id, None)
             bottom_map[text]()
@@ -1280,7 +1295,7 @@ class TelegramBot:
 
         # 命令路由
         if text in ("/start", "/menu", "/help", "菜单", "面板"):
-            self.show_home(chat_id, with_reply_kb=True)
+            self.show_home(chat_id, with_reply_kb=False)
             return
         elif text.startswith("/backup"):
             self.show_backup_menu(chat_id)
