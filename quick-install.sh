@@ -60,15 +60,18 @@ pkg_install() {
 info "正在安装基础依赖组件 (curl, tar, gzip, zstd, openssl, cron, python3)..."
 case "$PM" in
     apt-get) apt-get update -qq > /dev/null 2>&1 || true
-             pkg_install ca-certificates curl tar gzip zstd openssl unzip cron python3 python3-pip ;;
+             pkg_install ca-certificates curl tar gzip zstd openssl unzip cron python3 python3-pip python3-paramiko ;;
     dnf|yum) pkg_install epel-release 2>/dev/null || true
-             pkg_install ca-certificates curl tar gzip zstd openssl unzip cronie python3 python3-pip ;;
-    apk)     pkg_install bash ca-certificates curl tar gzip zstd openssl unzip coreutils python3 ;;
-    zypper)  pkg_install ca-certificates curl tar gzip zstd openssl unzip cron python3 ;;
+             pkg_install ca-certificates curl tar gzip zstd openssl unzip cronie python3 python3-pip python3-paramiko ;;
+    apk)     pkg_install bash ca-certificates curl tar gzip zstd openssl unzip coreutils python3 py3-paramiko ;;
+    zypper)  pkg_install ca-certificates curl tar gzip zstd openssl unzip cron python3 python3-paramiko ;;
     pacman)  pacman -Sy > /dev/null 2>&1 || true
-             pkg_install ca-certificates curl tar gzip zstd openssl unzip cronie python3 ;;
+             pkg_install ca-certificates curl tar gzip zstd openssl unzip cronie python3 python-paramiko ;;
     *) warn "未识别包管理器，请确保已安装 curl, tar, gzip, zstd, openssl, python3" ;;
 esac
+
+# 优化 IPv4 优先级，防止部分海外 VPS IPv6 黑洞导致 Google Drive / Telegram 超时
+grep -q "^precedence ::ffff:0:0/96  100" /etc/gai.conf 2>/dev/null || echo "precedence ::ffff:0:0/96  100" >> /etc/gai.conf 2>/dev/null || true
 
 # 2. 安装 / 升级 rclone
 if ! command -v rclone > /dev/null; then
@@ -101,6 +104,9 @@ chmod +x "$BIN_DIR/vps-backup-web.py"
 
 download "tg_bot.py" "$BIN_DIR/vps-backup-bot.py"
 chmod +x "$BIN_DIR/vps-backup-bot.py"
+
+download "vps-backup-nodes.py" "$BIN_DIR/vps-backup-nodes.py"
+chmod +x "$BIN_DIR/vps-backup-nodes.py"
 
 download "backup.conf.example" "$CONF_DIR/backup.conf.example"
 
@@ -141,7 +147,7 @@ ARCHIVE_EXCLUDES=(
 DOCKER_MYSQL_CONTAINERS=()
 DOCKER_PG_CONTAINERS=()
 
-RCLONE_EXTRA_FLAGS="--tpslimit 4 --drive-chunk-size 128M"
+RCLONE_EXTRA_FLAGS="--bind 0.0.0.0 --tpslimit 4 --drive-chunk-size 64M"
 LOG_FILE="/var/log/vps-backup.log"
 EOF
     chmod 600 "$CONF_DIR/backup.conf"
@@ -206,11 +212,11 @@ if [ -d /etc/cron.d ] && [ ! -f /etc/alpine-release ]; then
     cat > "$CRON_FILE" <<EOF
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-$MINUTE $HOUR * * * root $BIN_DIR/vps-backup >/dev/null 2>&1
+$MINUTE $HOUR * * * root $BIN_DIR/vps-backup archive >/dev/null 2>&1 && /usr/bin/python3 $BIN_DIR/vps-backup-nodes.py all >/dev/null 2>&1
 EOF
     chmod 644 "$CRON_FILE"
 else
-    (crontab -l 2>/dev/null | grep -v 'vps-backup' ; echo "$MINUTE $HOUR * * * $BIN_DIR/vps-backup >/dev/null 2>&1") | crontab -
+    (crontab -l 2>/dev/null | grep -v 'vps-backup' ; echo "$MINUTE $HOUR * * * $BIN_DIR/vps-backup archive >/dev/null 2>&1 && /usr/bin/python3 $BIN_DIR/vps-backup-nodes.py all >/dev/null 2>&1") | crontab -
 fi
 info "定时备份任务设置完成: 每天 $(printf '%02d:%02d' "$HOUR" "$MINUTE") 执行"
 
