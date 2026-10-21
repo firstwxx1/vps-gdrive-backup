@@ -668,9 +668,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 output = ""
             elif cmd == "vps-backup list":
                 output = subprocess.getoutput(
-                    "echo '=== 云盘全节点归档文件总览 (gdrive:vps-backup/) ===' && "
-                    "rclone lsl --bind 0.0.0.0 gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%10.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}' && "
-                    "echo '' && /usr/local/bin/vps-backup list 2>/dev/null"
+                    "echo '=== ☁️ Google Drive 5TB 全节点备份文件列表 (gdrive:vps-backup/) ===' && "
+                    "rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/ 2>/dev/null | sort -k4 | awk '{printf \"%10.2f MB  |  %s %s  |  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'"
                 )
             elif cmd in ("vps-backup run", "vps-backup archive"):
                 subprocess.Popen(
