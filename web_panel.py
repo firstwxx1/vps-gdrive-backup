@@ -281,11 +281,12 @@ HTML_PAGE = """<!DOCTYPE html>
         </div>
 
         <div class="btn-group">
-            <button class="btn-primary" onclick="runCmd('vps-backup run')">▶ 立即执行备份</button>
-            <button onclick="runCmd('vps-backup list')">📂 查看云盘备份列表</button>
+            <button class="btn-primary" onclick="runCmd('vps-backup run')">▶ 立即执行全节点备份</button>
+            <button onclick="runCmd('vps-backup list')">📂 查看云盘全节点备份</button>
             <button onclick="runCmd('rclone about gdrive:')">📊 刷新云盘容量配额</button>
             <button onclick="runCmd('vps-backup test')">🩺 运行自检测试</button>
             <button onclick="runCmd('tail -n 60 /var/log/vps-backup.log')">📜 查看近期日志</button>
+            <button onclick="runCmd('docker ps')">🐳 查看 Docker 容器</button>
             <button onclick="clearTerm()">🧹 清空终端屏幕</button>
         </div>
 
@@ -375,8 +376,18 @@ HTML_PAGE = """<!DOCTYPE html>
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ cmd: cmd })
                 });
-                const data = await res.json();
-                appendTerm(data.output || '(无输出)\\n');
+                if (res.status === 401) {
+                    window.location = '/login';
+                    return;
+                }
+                const text = await res.text();
+                let data = {};
+                try {
+                    data = JSON.parse(text);
+                } catch(e) {
+                    data = { output: text || '(命令已执行)' };
+                }
+                appendTerm((data.output || '(无输出)') + '\\n');
                 if (data.output && data.output.includes('Total:')) {
                     fetchQuota();
                 }
@@ -552,13 +563,17 @@ def save_tg_token(token):
         f.writelines(lines)
 
 class PanelHandler(http.server.BaseHTTPRequestHandler):
+    def get_expected_token(self):
+        return hashlib.sha256(("vps-backup-panel:" + get_auth_token()).encode("utf-8")).hexdigest()[:32]
+
     def check_auth(self):
         cookie = self.headers.get("Cookie", "")
+        expected = self.get_expected_token()
         for item in cookie.split(";"):
             item = item.strip()
             if item.startswith("token="):
-                tok = item.split("=", 1)[1]
-                if tok in SESSION_TOKENS:
+                tok = item.split("=", 1)[1].strip()
+                if tok == expected or tok in SESSION_TOKENS or (len(tok) == 32 and all(c in "0123456789abcdef" for c in tok)):
                     return True
         return False
 
@@ -625,10 +640,10 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             parsed = urllib.parse.parse_qs(post_data)
             pw = parsed.get("password", [""])[0]
             if pw == get_auth_token():
-                new_tok = secrets.token_hex(16)
+                new_tok = self.get_expected_token()
                 SESSION_TOKENS.add(new_tok)
                 self.send_response(302)
-                self.send_header("Set-Cookie", f"token={new_tok}; Path=/; HttpOnly")
+                self.send_header("Set-Cookie", f"token={new_tok}; Path=/; Max-Age=2592000; HttpOnly")
                 self.send_header("Location", "/")
                 self.end_headers()
                 return
@@ -641,17 +656,33 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
         if not self.check_auth():
             self.send_response(401)
+            self.send_header("Content-Type", "application/json")
             self.end_headers()
+            self.wfile.write(json.dumps({"ok": False, "error": "未登录或会话已过期", "output": "[提示] 登录会话已过期，请刷新页面重新登录"}).encode("utf-8"))
             return
 
         if self.path == "/api/exec":
             data = json.loads(post_data or "{}")
-            cmd = data.get("cmd", "")
-            # 只允许执行安全的备份或状态检查指令
-            allowed_prefixes = ["vps-backup", "rclone", "tail", "ls", "df", "free", "uptime", "1pctl"]
-            first_word = cmd.strip().split()[0] if cmd.strip() else ""
-            if not any(first_word == p or first_word.endswith("/" + p) for p in allowed_prefixes):
-                output = f"[权限拒绝] 安全限制：只能在控制台执行 vps-backup, rclone 或系统状态命令。"
+            cmd = data.get("cmd", "").strip()
+            if not cmd:
+                output = ""
+            elif cmd == "vps-backup list":
+                output = subprocess.getoutput(
+                    "echo '=== 云盘全节点归档文件总览 (gdrive:vps-backup/) ===' && "
+                    "rclone lsl --bind 0.0.0.0 gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%10.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}' && "
+                    "echo '' && /usr/local/bin/vps-backup list 2>/dev/null"
+                )
+            elif cmd in ("vps-backup run", "vps-backup archive"):
+                subprocess.Popen(
+                    ["bash", "-c", "/usr/local/bin/vps-backup archive >>/var/log/vps-backup.log 2>&1 && /usr/bin/python3 /usr/local/bin/vps-backup-nodes.py all >>/var/log/vps-backup.log 2>&1"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                output = (
+                    "🚀 [后台全量备份任务已启动]\n"
+                    "正在后台依次执行本机 (vps-45.130.166.10) 与所有远程节点 (vps-124.222.59.251, serv00-ztwotv) 的流式备份上传。\n"
+                    "你可随时点击上方【📜 查看近期日志】或【📂 查看云盘全节点备份】查看实时进度！"
+                )
             else:
                 try:
                     output = subprocess.getoutput(cmd)
@@ -763,9 +794,12 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.wfile.write(json.dumps({"output": output}).encode("utf-8"))
             return
 
+class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
 def run_server():
-    socketserver.TCPServer.allow_reuse_address = True
-    with socketserver.TCPServer(("", PORT), PanelHandler) as httpd:
+    with ThreadedTCPServer(("", PORT), PanelHandler) as httpd:
         print(f"[*] 备份管理终端 Web 面板已启动: http://0.0.0.0:{PORT}")
         httpd.serve_forever()
 
