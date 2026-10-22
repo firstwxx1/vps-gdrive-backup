@@ -67,7 +67,7 @@ LOG_FILE="/var/log/vps-backup.log"
 TG_BOT_TOKEN=""
 TG_CHAT_ID=""
 TG_API="https://api.telegram.org"
-NOTIFY_ON_SUCCESS="false"
+NOTIFY_ON_SUCCESS="true"
 
 # ============================ 运行时状态 ============================
 ERRORS=()
@@ -110,7 +110,7 @@ tg_send() {
     [ -n "$TG_BOT_TOKEN" ] && [ -n "$TG_CHAT_ID" ] || return 0
     local text="$1"
     [ "${#text}" -gt 4000 ] && text="${text:0:4000}..."
-    curl -fsS -m 30 -X POST "${TG_API%/}/bot${TG_BOT_TOKEN}/sendMessage" \
+    curl -4 -fsS -m 30 -X POST "${TG_API%/}/bot${TG_BOT_TOKEN}/sendMessage" \
         --data-urlencode "chat_id=${TG_CHAT_ID}" \
         --data-urlencode "text=${text}" \
         -d "disable_web_page_preview=true" > /dev/null

@@ -41,7 +41,7 @@ def parse_conf():
         "KEEP_MONTHLY_DAYS": "180",
         "ARCHIVE_ENABLED": "true",
         "SYNC_ENABLED": "false",
-        "NOTIFY_ON_SUCCESS": "false",
+        "NOTIFY_ON_SUCCESS": "true",
         "TG_BOT_TOKEN": "",
         "TG_CHAT_ID": "",
         "TG_API": "https://api.telegram.org",
@@ -432,7 +432,7 @@ class TelegramBot:
                 text=True,
                 errors="ignore",
             )
-            files_out = subprocess.getoutput(f"rclone lsl 'gdrive:vps-backup/{node_name}/archive/daily/' 2>/dev/null | tail -n 5")
+            files_out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list 'gdrive:vps-backup/{node_name}/archive/daily/' 2>/dev/null | tail -n 5")
             icon = "✅" if p.returncode == 0 else "❌"
             self.send_msg(
                 chat_id,
@@ -506,7 +506,7 @@ class TelegramBot:
             rel_dir = f"{bname}/archive/{tier}"
 
         full_remote = f"{remote}:{base}/{rel_dir}"
-        out = subprocess.getoutput(f"rclone lsl --tpslimit 4 '{full_remote}' 2>/dev/null | sort -k2,3")
+        out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list '{full_remote}' 2>/dev/null | sort -k2,3")
         lines = [ln.strip() for ln in out.splitlines() if ln.strip() and not ln.startswith("NOTICE")]
 
         self.file_cache.clear()
@@ -575,7 +575,7 @@ class TelegramBot:
         remote = self.conf.get("RCLONE_REMOTE", "gdrive")
         base = self.conf.get("REMOTE_BASE", "vps-backup")
         full = f"{remote}:{base}/{rel_path}"
-        subprocess.run(["rclone", "deletefile", "--drive-use-trash=false", full])
+        subprocess.run(["rclone", "deletefile", "--bind", "0.0.0.0", "--drive-use-trash=false", full])
         self.send_msg(chat_id, f"🗑️ 已从云盘永久删除: <code>{html_escape(rel_path)}</code>")
 
     # ==================== 3. 数据库热备与直发中心 ====================
@@ -655,7 +655,7 @@ class TelegramBot:
 
             for cname, fpath in dumped_files:
                 sz_kb = os.path.getsize(fpath) / 1024.0
-                subprocess.run(["rclone", "copy", "--tpslimit", "4", fpath, remote_db_dir])
+                subprocess.run(["rclone", "copy", "--bind", "0.0.0.0", "--tpslimit", "4", fpath, remote_db_dir])
                 if os.path.getsize(fpath) < 48 * 1024 * 1024:
                     self.send_document(chat_id, fpath, caption=f"🗄️ 数据库热备: {cname} ({sz_kb:.1f} KB)\n已同步至: {remote_db_dir}")
 
@@ -1038,8 +1038,8 @@ class TelegramBot:
             fid = data.split(":", 1)[1]
             self.handle_file_delete(chat_id, msg_id, fid)
         elif data == "act:quota_detail":
-            about = subprocess.getoutput("rclone about gdrive: 2>/dev/null")
-            files = subprocess.getoutput("rclone lsl gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
+            about = subprocess.getoutput("rclone about --bind 0.0.0.0 gdrive: 2>/dev/null")
+            files = subprocess.getoutput("rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
             self.edit_msg(
                 chat_id, msg_id,
                 f"<b>📊 Google Drive 5TB 容量与全节点备份文件</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(about)}</pre>\n<b>云盘已归档备份包:</b>\n<pre>{html_escape(files or '暂无文件')}</pre>",
@@ -1047,13 +1047,13 @@ class TelegramBot:
             )
         elif data == "act:prune_now":
             out = subprocess.getoutput(
-                "rclone delete --tpslimit 4 --min-age 7d gdrive:vps-backup/vps-45.130.166.10/archive/daily 2>&1"
+                "rclone delete --bind 0.0.0.0 --tpslimit 4 --min-age 7d gdrive:vps-backup/vps-45.130.166.10/archive/daily 2>&1"
             )
             self.send_msg(chat_id, f"🧹 <b>已按保留策略执行过期备份清理！</b>\n<code>{html_escape(out[:500] or '清理完成')}</code>")
         elif data == "act:empty_trash":
             threading.Thread(
                 target=lambda: (
-                    subprocess.run(["rclone", "cleanup", "gdrive:"]),
+                    subprocess.run(["rclone", "cleanup", "--bind", "0.0.0.0", "gdrive:"]),
                     self.send_msg(chat_id, "🗑️ <b>Google Drive 云盘回收站已彻底清空！空间已释放。</b>"),
                 ),
                 daemon=True,
@@ -1073,7 +1073,7 @@ class TelegramBot:
             nname = data.split(":", 1)[1]
             self.run_remote_node_backup(chat_id, nname)
         elif data == "act:node_cloud_dirs":
-            files = subprocess.getoutput("rclone lsl gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%8.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
+            files = subprocess.getoutput("rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%8.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
             self.edit_msg(
                 chat_id, msg_id,
                 f"<b>☁️ 云盘全节点备份文件总览 (gdrive:vps-backup/)</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(files[-3000:] or '暂无备份文件')}</pre>",
