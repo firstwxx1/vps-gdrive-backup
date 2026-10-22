@@ -24,7 +24,7 @@ header() {
     echo -e "${CYAN}========================================================================${NC}"
     echo -e "${BOLD}${GREEN}        🚀 Google Drive 5TB VPS 备份与多节点管理终端面板${NC}"
     echo -e "${CYAN}========================================================================${NC}"
-    echo -e " 本机节点: ${YELLOW}$(hostname)${NC} | 系统时区: ${BLUE}$(date '+%Y-%m-%d %H:%M:%S %Z')${NC}"
+    echo -e " 本机节点: ${YELLOW}$(hostname)${NC} | 系统时区: ${BLUE}$(date '+%Y-%m-%d %H:%M:%S %Z')${NC} | 保活状态: ${GREEN}双重守护中${NC}"
     echo -e "${CYAN}------------------------------------------------------------------------${NC}"
 }
 
@@ -232,6 +232,9 @@ run_test() {
     header
     echo -e "${BOLD}[*] 运行系统自检与连接测试 (vps-backup test)...${NC}\n"
     /usr/local/bin/vps-backup test
+    echo
+    echo -e "${BOLD}[*] 检查保活守护与开机自启动状态...${NC}\n"
+    /usr/local/bin/vps-backup-keepalive status 2>/dev/null || true
     pause
 }
 

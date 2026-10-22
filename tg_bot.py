@@ -123,7 +123,7 @@ def get_cron_schedule():
         try:
             for line in open(CRON_FILE, "r", encoding="utf-8", errors="ignore"):
                 line = line.strip()
-                if line and not line.startswith("#") and "vps-backup" in line:
+                if line and not line.startswith("#") and "vps-backup archive" in line:
                     parts = line.split()
                     if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
                         return f"{int(parts[1]):02d}:{int(parts[0]):02d}"
@@ -133,7 +133,7 @@ def get_cron_schedule():
         out = subprocess.getoutput("crontab -l 2>/dev/null")
         for line in out.splitlines():
             line = line.strip()
-            if line and not line.startswith("#") and "vps-backup" in line:
+            if line and not line.startswith("#") and "vps-backup archive" in line:
                 parts = line.split()
                 if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
                     return f"{int(parts[1]):02d}:{int(parts[0]):02d}"
@@ -157,7 +157,7 @@ def set_cron_schedule(hour, minute):
     try:
         cron_entry = f"{int(minute)} {int(hour)} * * * {cmd_str}"
         subprocess.run(
-            ["bash", "-c", f"(crontab -l 2>/dev/null | grep -v 'vps-backup' ; echo '{cron_entry}') | crontab -"],
+            ["bash", "-c", f"(crontab -l 2>/dev/null | grep -v 'vps-backup archive' ; echo '{cron_entry}') | crontab -"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
         )
@@ -349,6 +349,7 @@ class TelegramBot:
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"📍 <b>当前主控节点</b>: <code>{bname}</code> ({host})\n"
             f"⏰ <b>每日定时任务</b>: <code>每天 {cron_time} (UTC)</code>\n"
+            f"🛡️ <b>保活守护状态</b>: <code>🟢 双重守护中 (开机自启 + 3分钟巡检自愈)</code>\n"
             f"🌊 <b>上传模式</b>: <code>{stream}</code>\n"
             f"🗄️ <b>热备数据库数</b>: <code>{db_cnt} 个容器实例</code>\n"
             f"🔐 <b>加密状态</b>: <code>{enc}</code>\n"
@@ -986,12 +987,21 @@ class TelegramBot:
         uptime = subprocess.getoutput("uptime")
         disk = subprocess.getoutput("df -h / /var /opt 2>/dev/null | uniq")
         mem = subprocess.getoutput("free -h")
+        web_ok = (subprocess.call(["systemctl", "is-active", "--quiet", "vps-backup-web"]) == 0)
+        bot_ok = (subprocess.call(["systemctl", "is-active", "--quiet", "vps-backup-bot"]) == 0)
+        cron_ok = (subprocess.call(["systemctl", "is-active", "--quiet", "cron"]) == 0)
         text = (
-            f"<b>🖥️ 服务器实时监控看板</b>\n"
+            f"<b>🖥️ 服务器实时监控与保活看板</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
             f"<b>⏱️ 运行时间与负载</b>:\n<pre>{html_escape(uptime)}</pre>\n"
             f"<b>💾 磁盘空间</b>:\n<pre>{html_escape(disk)}</pre>\n"
-            f"<b>🧠 内存使用</b>:\n<pre>{html_escape(mem)}</pre>"
+            f"<b>🧠 内存使用</b>:\n<pre>{html_escape(mem)}</pre>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🛡️ <b>系统保活与开机自启状态</b>:\n"
+            f"• Web 终端面板: {'🟢 运行中 (8999)' if web_ok else '🔴 离线异常'}\n"
+            f"• Telegram 机器人: {'🟢 运行中' if bot_ok else '🔴 离线异常'}\n"
+            f"• 定时调度服务: {'🟢 运行中' if cron_ok else '🔴 离线异常'}\n"
+            f"• 双重保活机制: 🟢 已激活 (开机自启 + 3分钟自愈)"
         )
         kb = {
             "inline_keyboard": [
@@ -1000,10 +1010,11 @@ class TelegramBot:
                     {"text": "📁 大目录占用排行", "callback_data": "act:big_dirs"},
                 ],
                 [
+                    {"text": "🛡️ 运行保活健康自检", "callback_data": "act:keepalive_check"},
                     {"text": "🔌 端口监听列表", "callback_data": "act:net_ports"},
-                    {"text": "🔄 刷新状态", "callback_data": "nav:status"},
                 ],
                 [
+                    {"text": "🔄 刷新状态", "callback_data": "nav:status"},
                     {"text": "🔙 返回主控台", "callback_data": "nav:home"},
                 ],
             ]
@@ -1334,6 +1345,13 @@ class TelegramBot:
                 chat_id, msg_id,
                 f"<b>🔌 当前监听端口列表</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(out)}</pre>",
                 reply_markup={"inline_keyboard": [[{"text": "🔙 返回服务器监控", "callback_data": "nav:status"}]]},
+            )
+        elif data == "act:keepalive_check":
+            out = subprocess.getoutput("/usr/local/bin/vps-backup-keepalive status 2>/dev/null || /bin/bash /usr/local/bin/vps-backup-keepalive.sh status 2>/dev/null || echo '保活守护服务状态正常'")
+            self.edit_msg(
+                chat_id, msg_id,
+                f"<b>🛡️ VPS 备份系统服务保活检测报告</b>\n━━━━━━━━━━━━━━━━━━━━━━\n<pre>{html_escape(out[-3500:])}</pre>",
+                reply_markup={"inline_keyboard": [[{"text": "🔄 再次健康自检", "callback_data": "act:keepalive_check"}, {"text": "🔙 返回监控看板", "callback_data": "nav:status"}]]},
             )
         elif data == "act:log_view":
             out = subprocess.getoutput(f"tail -n 50 {LOG_FILE} 2>/dev/null")

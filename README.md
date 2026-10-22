@@ -176,7 +176,12 @@ rclone cat gdrive:vps-backup/hk-01/archive/daily/xxx.tar.zst.enc \
 
 | 文件 | 作用 |
 |---|---|
-| `vps-backup.sh` | 主程序，安装为 `/usr/local/bin/vps-backup` |
+| `vps-backup.sh` | 主备份程序，安装为 `/usr/local/bin/vps-backup` |
+| `vps-backup-keepalive.sh` | 守护保活与开机自愈程序，安装为 `/usr/local/bin/vps-backup-keepalive` |
+| `tg_bot.py` | Telegram 机器人全功能管理后台，安装为 `/usr/local/bin/vps-backup-bot.py` |
+| `web_panel.py` | Web 终端可视化控制面板 (端口 8999)，安装为 `/usr/local/bin/vps-backup-web.py` |
+| `vps-backup-nodes.py` | 多服务器跨国 SSH 流式打包直传引擎 |
+| `vps-backup-panel.sh` | SSH 交互式彩色管理终端面板 |
 | `backup.conf.example` | 配置模板（含详细注释），安装为 `/etc/vps-backup/backup.conf` |
 | `install.sh` | 安装依赖、rclone、脚本、配置和定时任务 |
 | `deploy.sh` | 通过 SSH 批量部署到多台 VPS |

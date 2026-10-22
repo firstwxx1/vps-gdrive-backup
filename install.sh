@@ -109,6 +109,11 @@ fi
 install -m 755 "$SCRIPT_DIR/vps-backup.sh" "$BIN"
 info "脚本已安装: $BIN"
 
+if [ -f "$SCRIPT_DIR/vps-backup-keepalive.sh" ]; then
+    install -m 755 "$SCRIPT_DIR/vps-backup-keepalive.sh" /usr/local/bin/vps-backup-keepalive
+    ln -sf /usr/local/bin/vps-backup-keepalive /usr/local/bin/vps-keepalive
+fi
+
 mkdir -p "$CONF_DIR"; chmod 700 "$CONF_DIR"
 install -m 644 "$SCRIPT_DIR/backup.conf.example" "$CONF_DIR/backup.conf.example"
 if [ -n "$CONF_SRC" ]; then
@@ -160,6 +165,7 @@ EOF
             systemctl enable --now "$s" > /dev/null 2>&1 && break
         done
     fi
+    [ -x /usr/local/bin/vps-backup-keepalive ] && /usr/local/bin/vps-backup-keepalive install > /dev/null 2>&1 || true
     info "定时任务: 每天 $(printf '%02d:%02d' "$HOUR" "$MINUTE") 执行（系统时区: $(date +%Z)）"
 fi
 

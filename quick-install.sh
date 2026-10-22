@@ -108,6 +108,10 @@ chmod +x "$BIN_DIR/vps-backup-bot.py"
 download "vps-backup-nodes.py" "$BIN_DIR/vps-backup-nodes.py"
 chmod +x "$BIN_DIR/vps-backup-nodes.py"
 
+download "vps-backup-keepalive.sh" "$BIN_DIR/vps-backup-keepalive"
+chmod +x "$BIN_DIR/vps-backup-keepalive"
+ln -sf "$BIN_DIR/vps-backup-keepalive" "$BIN_DIR/vps-keepalive"
+
 download "backup.conf.example" "$CONF_DIR/backup.conf.example"
 
 # 4. 生成默认配置文件（若不存在）
@@ -170,7 +174,9 @@ if command -v systemctl >/dev/null && [ -d /etc/systemd/system ]; then
     cat > /etc/systemd/system/vps-backup-web.service <<EOF
 [Unit]
 Description=VPS Google Drive Backup Web Terminal Panel
-After=network.target
+After=network.target network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
@@ -178,6 +184,8 @@ User=root
 ExecStart=/usr/bin/python3 $BIN_DIR/vps-backup-web.py
 Restart=always
 RestartSec=5
+KillMode=mixed
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -186,14 +194,18 @@ EOF
     cat > /etc/systemd/system/vps-backup-bot.service <<EOF
 [Unit]
 Description=VPS Google Drive Backup Telegram Bot Daemon
-After=network.target
+After=network.target network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
 User=root
 ExecStart=/usr/bin/python3 $BIN_DIR/vps-backup-bot.py
 Restart=always
-RestartSec=10
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=10
 
 [Install]
 WantedBy=multi-user.target
@@ -201,6 +213,7 @@ EOF
 
     systemctl daemon-reload
     systemctl enable --now vps-backup-web >/dev/null 2>&1 || true
+    "$BIN_DIR/vps-backup-keepalive" install >/dev/null 2>&1 || true
 fi
 
 # 6. 配置每日定时任务 (每天凌晨 3:00~3:59 随机错峰执行)

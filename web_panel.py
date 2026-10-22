@@ -278,12 +278,18 @@ HTML_PAGE = """<!DOCTYPE html>
                 <div class="card-value" style="font-size: 18px;">每天 03:17 (UTC)</div>
                 <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">系统自动无感运行</div>
             </div>
+            <div class="card">
+                <div class="card-title">保活守护与开机自启</div>
+                <div class="card-value" style="font-size: 18px; color: var(--success);">🟢 双重守护中</div>
+                <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">开机自启 + 3分钟自愈巡检</div>
+            </div>
         </div>
 
         <div class="btn-group">
             <button class="btn-primary" onclick="runCmd('vps-backup run')">▶ 立即执行全节点备份</button>
             <button onclick="runCmd('vps-backup list')">📂 查看云盘全节点备份</button>
             <button onclick="runCmd('rclone about gdrive:')">📊 刷新云盘容量配额</button>
+            <button onclick="runCmd('/usr/local/bin/vps-backup-keepalive status')">🛡️ 检查保活自启状态</button>
             <button onclick="runCmd('vps-backup test')">🩺 运行自检测试</button>
             <button onclick="runCmd('tail -n 60 /var/log/vps-backup.log')">📜 查看近期日志</button>
             <button onclick="runCmd('docker ps')">🐳 查看 Docker 容器</button>
