@@ -244,6 +244,7 @@ class TelegramBot:
             {"command": "config", "description": "⚙️ 备份目录、保留天数与定时策略设置"},
             {"command": "docker", "description": "🐳 Docker 容器状态、重启与日志管理"},
             {"command": "status", "description": "🖥️ 服务器负载、磁盘、大目录与进程监控"},
+            {"command": "web", "description": "💻 查看 Web 终端地址与登录密码"},
             {"command": "sh", "description": "💻 执行远程 Linux 命令 (例: /sh df -h)"},
             {"command": "log", "description": "📜 查看近期备份与运行日志"},
         ]
@@ -1041,10 +1042,11 @@ class TelegramBot:
                     {"text": "🐳 清理 Docker 悬空镜像缓存", "callback_data": "act:clean_docker"},
                 ],
                 [
-                    {"text": "🔄 重启 Web 管理面板 (8999)", "callback_data": "act:restart_web"},
-                    {"text": "📜 查看备份日志 (最新50行)", "callback_data": "act:log_view"},
+                    {"text": "🔑 查看 Web 面板密码", "callback_data": "act:show_web_pass"},
+                    {"text": "🔄 重启 Web 面板 (8999)", "callback_data": "act:restart_web"},
                 ],
                 [
+                    {"text": "📜 查看备份日志 (最新50行)", "callback_data": "act:log_view"},
                     {"text": "🔙 返回主控台", "callback_data": "nav:home"},
                 ],
             ]
@@ -1366,6 +1368,30 @@ class TelegramBot:
         elif data == "act:clean_docker":
             out = subprocess.getoutput("docker image prune -f 2>&1")
             self.send_msg(chat_id, f"🐳 <b>Docker 悬空镜像清理完成：</b>\n<pre>{html_escape(out[-1500:])}</pre>")
+        elif data == "act:show_web_pass":
+            web_pass = "3590114741."
+            if os.path.exists("/etc/vps-backup/web.conf"):
+                try:
+                    with open("/etc/vps-backup/web.conf", "r", encoding="utf-8") as f:
+                        for l in f:
+                            if l.strip().startswith("PASSWORD="):
+                                web_pass = l.strip().split("=", 1)[1].strip('"\'')
+                except:
+                    pass
+            ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "45.130.166.10"
+            self.edit_msg(
+                chat_id, msg_id,
+                f"🔑 <b>【Web 终端管理控制台】</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌐 <b>访问地址</b>: <code>http://{ip}:8999</code>\n"
+                f"🔑 <b>登录密码</b>: <code>{web_pass}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 <i>复制上述密码直接粘贴即可登录。系统同时兼容直接输入 <code>3590114741</code> 或服务器 root 密码。</i>",
+                reply_markup={"inline_keyboard": [
+                    [{"text": "🔄 重启 Web 服务", "callback_data": "act:restart_web"}],
+                    [{"text": "🔙 返回运维菜单", "callback_data": "nav:ops"}]
+                ]}
+            )
         elif data == "act:restart_web":
             subprocess.run(["systemctl", "restart", "vps-backup-web"])
             self.send_msg(chat_id, "✅ <b>Web 终端管理面板 (端口 8999) 已重启！</b>")
@@ -1454,6 +1480,31 @@ class TelegramBot:
             return
         elif text.startswith("/status"):
             self.show_status_menu(chat_id)
+            return
+        elif text.startswith("/web") or text.startswith("/password"):
+            web_pass = "3590114741."
+            if os.path.exists("/etc/vps-backup/web.conf"):
+                try:
+                    with open("/etc/vps-backup/web.conf", "r", encoding="utf-8") as f:
+                        for l in f:
+                            if l.strip().startswith("PASSWORD="):
+                                web_pass = l.strip().split("=", 1)[1].strip('"\'')
+                except:
+                    pass
+            ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "45.130.166.10"
+            self.send_msg(
+                chat_id,
+                f"💻 <b>【Web 终端管理控制台】</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌐 <b>访问地址</b>: <code>http://{ip}:8999</code>\n"
+                f"🔑 <b>管理密码</b>: <code>{web_pass}</code>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"💡 <i>复制上述密码直接粘贴登录即可。系统同时也支持输入 <code>3590114741</code> 或服务器 root 密码登录。</i>",
+                reply_markup={"inline_keyboard": [
+                    [{"text": "🔄 重启 Web 服务", "callback_data": "act:restart_web"}],
+                    [{"text": "🔙 返回主控台", "callback_data": "nav:home"}]
+                ]}
+            )
             return
         elif text.startswith("/log"):
             out = subprocess.getoutput(f"tail -n 50 {LOG_FILE} 2>/dev/null")

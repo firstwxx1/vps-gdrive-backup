@@ -290,12 +290,18 @@ manage_web() {
     if systemctl is-active --quiet vps-backup-web 2>/dev/null; then
         status="${GREEN}运行中 (端口: 8999)${NC}"
     fi
+    local cur_pass="3590114741."
+    if [ -f "/etc/vps-backup/web.conf" ]; then
+        cur_pass=$(grep '^PASSWORD=' /etc/vps-backup/web.conf 2>/dev/null | cut -d'=' -f2 | tr -d '"'\'' ')
+    fi
     echo -e "Web 面板状态: $status"
-    echo -e "访问地址: ${BLUE}http://$(curl -s4 ifconfig.me || hostname -I | awk '{print $1}'):8999${NC}"
+    echo -e "访问地址: ${BLUE}http://$(curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'):8999${NC}"
+    echo -e "当前管理密码: ${YELLOW}${cur_pass}${NC} (支持直接复制粘贴登录)"
     echo
     echo "1. 启动 Web 面板服务"
     echo "2. 停止 Web 面板服务"
     echo "3. 重启 Web 面板服务"
+    echo "4. 修改 Web 面板管理密码"
     echo "0. 返回"
     echo
     read -r -p "请选择: " w_opt
@@ -303,6 +309,18 @@ manage_web() {
         1) systemctl enable --now vps-backup-web 2>/dev/null; echo "已启动！" ;;
         2) systemctl stop vps-backup-web 2>/dev/null; echo "已停止！" ;;
         3) systemctl restart vps-backup-web 2>/dev/null; echo "已重启！" ;;
+        4)
+            read -r -p "请输入新的 Web 面板登录密码: " new_pw
+            new_pw=$(echo "$new_pw" | tr -d '[:space:]')
+            if [ -n "$new_pw" ]; then
+                echo "PASSWORD=\"$new_pw\"" > /etc/vps-backup/web.conf
+                chmod 600 /etc/vps-backup/web.conf
+                systemctl restart vps-backup-web 2>/dev/null || true
+                echo -e "${GREEN}密码修改成功并已重启 Web 面板服务！${NC}"
+            else
+                echo -e "${YELLOW}未输入新密码，操作取消${NC}"
+            fi
+            ;;
     esac
     pause
 }
