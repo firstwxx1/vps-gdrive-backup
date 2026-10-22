@@ -71,6 +71,52 @@ def load_nodes():
             return json.load(f)
     return []
 
+def save_nodes(nodes):
+    os.makedirs(os.path.dirname(NODES_FILE), exist_ok=True)
+    with open(NODES_FILE, "w", encoding="utf-8") as f:
+        json.dump(nodes, f, ensure_ascii=False, indent=2)
+    os.chmod(NODES_FILE, 0o600)
+
+def delete_node(name, purge_gdrive=False):
+    conf = load_conf()
+    master = conf.get("BACKUP_NAME", "vps-45.130.166.10")
+    if name == master:
+        print(f"[!] 安全拦截: 禁止删除本机主控节点 ({master})")
+        return False, "禁止删除本机主控节点"
+
+    nodes = load_nodes()
+    target = next((n for n in nodes if n.get("name") == name or n.get("host") == name), None)
+    if not target:
+        print(f"[!] 未找到节点: {name}")
+        return False, f"未找到名为 {name} 的节点"
+
+    real_name = target.get("name") or name
+    nodes = [n for n in nodes if n.get("name") != real_name and n.get("host") != target.get("host")]
+    save_nodes(nodes)
+    print(f"[+] 节点 {real_name} 已从监控调度列表移除")
+
+    purge_msg = ""
+    if purge_gdrive:
+        print(f"[*] 正在清空云盘目录 gdrive:vps-backup/{real_name}/ ...")
+        cmd = ["rclone", "purge", "--bind", "0.0.0.0", f"gdrive:vps-backup/{real_name}/"]
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        if p.returncode == 0:
+            purge_msg = "，并已彻底清空云盘历史备份目录"
+            print(f"[+] 云盘目录 gdrive:vps-backup/{real_name}/ 已彻底清空")
+        else:
+            purge_msg = f"，但清空云盘失败: {p.stderr.strip()[:200]}"
+            print(f"[!] 清空云盘失败: {p.stderr.strip()}")
+    else:
+        purge_msg = "，云盘历史备份已完好保留"
+
+    tg_send(
+        f"🗑️ <b>[节点删除通知]</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🌐 <b>节点名称</b>: <code>{real_name}</code>\n"
+        f"📋 <b>操作结果</b>: 节点已从调度列表中移除{purge_msg}。"
+    )
+    return True, f"节点 {real_name} 已成功移除{purge_msg}"
+
 def backup_node(node):
     name = node.get("name") or f"vps-{node.get('host')}"
     host = node.get("host")
@@ -209,6 +255,29 @@ def backup_node(node):
         return False, name, f"上传失败 (rc={rc})"
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1 and sys.argv[1] == "_notify":
+        if len(sys.argv) > 2:
+            tg_send(sys.argv[2])
+        sys.exit(0)
+
+    if len(sys.argv) > 1 and sys.argv[1] in ("del", "delete", "rm", "remove"):
+        if len(sys.argv) < 3:
+            print("用法: vps-backup-nodes.py del <node_name> [--purge]")
+            sys.exit(1)
+        del_target = sys.argv[2]
+        do_purge = ("--purge" in sys.argv)
+        ok, msg = delete_node(del_target, purge_gdrive=do_purge)
+        print(msg)
+        sys.exit(0 if ok else 1)
+
+    if len(sys.argv) > 1 and sys.argv[1] in ("list", "ls"):
+        nodes = load_nodes()
+        print(f"已纳管远程节点数量: {len(nodes)}")
+        for idx, n in enumerate(nodes, 1):
+            nname = n.get("name") or f"vps-{n.get('host')}"
+            print(f"  [{idx}] {nname} ({n.get('user', 'root')}@{n.get('host')}:{n.get('port', 22)}) [类型: {n.get('type', 'linux')}]")
+        sys.exit(0)
+
     target = sys.argv[1] if len(sys.argv) > 1 else "all"
     nodes = load_nodes()
     results = []

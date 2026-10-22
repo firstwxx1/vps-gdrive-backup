@@ -129,19 +129,40 @@ def get_cron_schedule():
                         return f"{int(parts[1]):02d}:{int(parts[0]):02d}"
         except:
             pass
+    try:
+        out = subprocess.getoutput("crontab -l 2>/dev/null")
+        for line in out.splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "vps-backup" in line:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
+                    return f"{int(parts[1]):02d}:{int(parts[0]):02d}"
+    except:
+        pass
     return "03:17"
 
 
 def set_cron_schedule(hour, minute):
+    cmd_str = "/usr/local/bin/vps-backup archive >/dev/null 2>&1 && /usr/bin/python3 /usr/local/bin/vps-backup-nodes.py all >/dev/null 2>&1"
     content = (
         "# vps-backup 每日自动备份\n"
         "SHELL=/bin/bash\n"
         "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n"
-        f"{int(minute)} {int(hour)} * * * root /usr/local/bin/vps-backup > /dev/null 2>&1\n"
+        f"{int(minute)} {int(hour)} * * * root {cmd_str}\n"
     )
     with open(CRON_FILE, "w", encoding="utf-8") as f:
         f.write(content)
     os.chmod(CRON_FILE, 0o644)
+
+    try:
+        cron_entry = f"{int(minute)} {int(hour)} * * * {cmd_str}"
+        subprocess.run(
+            ["bash", "-c", f"(crontab -l 2>/dev/null | grep -v 'vps-backup' ; echo '{cron_entry}') | crontab -"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+    except Exception as e:
+        print(f"[!] update crontab warning: {e}")
 
 
 def load_nodes():
@@ -722,8 +743,9 @@ class TelegramBot:
             nname = n.get("name", f"vps-{n.get('host')}")
             node_lines.append(f"{idx}. <b>{html_escape(nname)}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}:{n.get('port', 22)}</code>)")
             node_btn_rows.append([
-                {"text": f"⚡ 立即备份 {nname}", "callback_data": f"nbk:{nname}"},
-                {"text": f"📂 查看备份 {nname}", "callback_data": f"flist:node:{nname}"},
+                {"text": f"⚡ 备份 {nname[:12]}", "callback_data": f"nbk:{nname}"},
+                {"text": "📂 查看", "callback_data": f"flist:node:{nname}"},
+                {"text": "🗑️ 移除", "callback_data": f"ndel_cf:{nname}"},
             ])
         body = "\n".join(node_lines)
         text = (
@@ -745,6 +767,7 @@ class TelegramBot:
                     {"text": "🚀 全节点一键并发备份", "callback_data": "act:node_backup_all"},
                 ],
                 [
+                    {"text": "🗑️ 移除/删除已纳管节点", "callback_data": "act:node_del_menu"},
                     {"text": "🔙 返回主控台", "callback_data": "nav:home"},
                 ],
             ]
@@ -753,6 +776,57 @@ class TelegramBot:
             self.edit_msg(chat_id, msg_id, text, reply_markup=kb)
         else:
             self.send_msg(chat_id, text, reply_markup=kb)
+
+    def handle_node_delete(self, chat_id, msg_id, nname, purge_gdrive=False):
+        bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
+        if nname == bname:
+            self.send_msg(chat_id, f"❌ <b>安全拦截</b>: 禁止删除本机主控节点 <code>{bname}</code>！")
+            return
+
+        nodes = load_nodes()
+        target = next((n for n in nodes if n.get("name") == nname or n.get("host") == nname), None)
+        if not target:
+            self.send_msg(chat_id, f"⚠️ 未在管理列表中找到节点 <code>{html_escape(nname)}</code>。")
+            self.show_nodes_menu(chat_id, msg_id)
+            return
+
+        real_name = target.get("name") or nname
+        new_nodes = [n for n in nodes if n.get("name") != real_name and n.get("host") != target.get("host")]
+        save_nodes(new_nodes)
+
+        if not purge_gdrive:
+            self.send_msg(
+                chat_id,
+                f"✅ <b>[节点已移除监控]</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🌐 <b>节点名称</b>: <code>{html_escape(real_name)}</code>\n"
+                f"📋 <b>操作结果</b>: 已从自动备份与监控列表中剔除\n"
+                f"☁️ <b>云端数据</b>: <code>gdrive:vps-backup/{html_escape(real_name)}/</code> 历史备份完好保留"
+            )
+            self.show_nodes_menu(chat_id, msg_id)
+        else:
+            self.send_msg(
+                chat_id,
+                f"⏳ <b>正在清空节点 <code>{html_escape(real_name)}</code> 在 Google Drive 上的所有备份归档...</b>"
+            )
+            def purge_worker():
+                cmd = ["rclone", "purge", "--bind", "0.0.0.0", f"gdrive:vps-backup/{real_name}/"]
+                p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if p.returncode == 0:
+                    self.send_msg(
+                        chat_id,
+                        f"💥 <b>[节点删除成功]</b>\n"
+                        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🌐 <b>受控节点</b>: <code>{html_escape(real_name)}</code>\n"
+                        f"🗑️ <b>操作结果</b>: 已从监控移除，并已彻底清空其在 Google Drive 的存储目录 <code>gdrive:vps-backup/{html_escape(real_name)}/</code>！"
+                    )
+                else:
+                    self.send_msg(
+                        chat_id,
+                        f"⚠️ 节点 <code>{html_escape(real_name)}</code> 已从列表移除，但清空云盘目录失败: <pre>{html_escape(p.stderr[:500])}</pre>"
+                    )
+            threading.Thread(target=purge_worker, daemon=True).start()
+            self.show_nodes_menu(chat_id, msg_id)
 
     def deploy_remote_vps(self, chat_id, host, port, user, password):
         def worker():
@@ -1104,6 +1178,52 @@ class TelegramBot:
         elif data == "act:node_backup_all":
             self.run_backup_task(chat_id, "run")
             self.run_remote_node_backup(chat_id, "all")
+        elif data == "act:node_del_menu":
+            nodes = load_nodes()
+            if not nodes:
+                self.edit_msg(
+                    chat_id, msg_id,
+                    "<b>🗑️ 管理与删除节点</b>\n━━━━━━━━━━━━━━━━━━━━━━\n当前除本机外暂无已纳管的远程节点。",
+                    reply_markup={"inline_keyboard": [[{"text": "🔙 返回节点管理", "callback_data": "nav:nodes"}]]}
+                )
+            else:
+                del_rows = []
+                for n in nodes:
+                    nname = n.get("name", f"vps-{n.get('host')}")
+                    del_rows.append([{"text": f"🗑️ 移除: {nname}", "callback_data": f"ndel_cf:{nname}"}])
+                del_rows.append([{"text": "🔙 返回节点管理", "callback_data": "nav:nodes"}])
+                self.edit_msg(
+                    chat_id, msg_id,
+                    "<b>🗑️ 管理与删除节点</b>\n━━━━━━━━━━━━━━━━━━━━━━\n请选择需要移除监控或清空备份的节点：",
+                    reply_markup={"inline_keyboard": del_rows}
+                )
+        elif data.startswith("ndel_cf:"):
+            nname = data.split(":", 1)[1]
+            text = (
+                f"⚠️ <b>【确认删除/移除节点】</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🖥️ <b>目标节点</b>: <code>{html_escape(nname)}</code>\n\n"
+                f"请选择删除处理模式：\n\n"
+                f"1️⃣ <b>仅移除监控 (保留云盘备份)</b>\n"
+                f"• 从自动监控与每日定时流式备份中剔除\n"
+                f"• <b>云盘历史归档完全保留</b>，日后可随时手动下载或恢复\n\n"
+                f"2️⃣ <b>彻底删除并清空云盘历史归档</b>\n"
+                f"• 从自动监控与定时任务中彻底剔除\n"
+                f"• <b>永久清空 Google Drive 上的所有备份归档</b> (<code>gdrive:vps-backup/{html_escape(nname)}/</code>)\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"⚠️ <i>若选择清空云盘，数据将不可恢复，请确认后再操作！</i>"
+            )
+            kb = {
+                "inline_keyboard": [
+                    [{"text": "❌ 仅移除监控 (保留云盘备份)", "callback_data": f"ndel_ok:u:{nname}"}],
+                    [{"text": "💥 彻底移除并清空云盘备份", "callback_data": f"ndel_ok:p:{nname}"}],
+                    [{"text": "🔙 取消返回", "callback_data": "nav:nodes"}],
+                ]
+            }
+            self.edit_msg(chat_id, msg_id, text, reply_markup=kb)
+        elif data.startswith("ndel_ok:"):
+            _, act, nname = data.split(":", 2)
+            self.handle_node_delete(chat_id, msg_id, nname, purge_gdrive=(act == "p"))
 
         # 配置修改动作
         elif data == "cfg:toggle_stream":
@@ -1304,6 +1424,9 @@ class TelegramBot:
             return
         elif text.startswith("/nodes") or text.startswith("/deploy"):
             self.show_nodes_menu(chat_id)
+            return
+        elif text.startswith("/delnode") or text.startswith("/nodedel"):
+            self.handle_callback({"id": "0", "from": {"id": chat_id}, "message": {"chat": {"id": chat_id}}, "data": "act:node_del_menu"})
             return
         elif text.startswith("/config"):
             self.show_config_menu(chat_id)

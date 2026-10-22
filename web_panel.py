@@ -303,6 +303,33 @@ HTML_PAGE = """<!DOCTYPE html>
             </div>
         </div>
 
+        <!-- 已纳管多服务器节点管理 -->
+        <div class="deploy-section" style="margin-top: 24px;">
+            <div class="deploy-title" style="display: flex; justify-content: space-between; align-items: center;">
+                <span>🌐 已纳管服务器节点 (<span id="nodes-count" style="color: var(--primary);">...</span> 台已加入备份调度)</span>
+                <button style="padding: 4px 12px; font-size: 12px;" onclick="loadNodes()">🔄 刷新列表</button>
+            </div>
+            <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 14px;">
+                所有已注册节点将自动通过海外主控通过 SSH 加密隧道流式直传 Google Drive 5TB。在此可随时执行单机备份或移除节点。
+            </p>
+            <div id="nodes-container" style="overflow-x: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 13px; text-align: left;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid var(--border); color: var(--text-dim);">
+                            <th style="padding: 10px 8px;">类型</th>
+                            <th style="padding: 10px 8px;">节点标识</th>
+                            <th style="padding: 10px 8px;">SSH 连接地址</th>
+                            <th style="padding: 10px 8px;">调度状态</th>
+                            <th style="padding: 10px 8px; text-align: right;">管理操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="nodes-tbody">
+                        <tr><td colspan="5" style="padding: 16px; text-align: center; color: var(--text-dim);">正在加载节点数据...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
         <div class="deploy-section" style="margin-top: 24px;">
             <div class="deploy-title">🤖 启用 Telegram 手机控制机器人面板</div>
             <p style="font-size: 13px; color: var(--text-dim); margin-bottom: 16px;">
@@ -454,12 +481,94 @@ HTML_PAGE = """<!DOCTYPE html>
                 });
                 const data = await res.json();
                 appendTerm(data.output || '(无输出)\\n');
+                loadNodes();
             } catch(e) {
                 appendTerm('[错误] 部署请求发生异常: ' + e + '\\n');
             }
 
             termStatus.textContent = '● 准备就绪';
             termStatus.style.color = 'var(--success)';
+        }
+
+        let currentDelNode = '';
+        function openDeleteModal(name) {
+            currentDelNode = name;
+            document.getElementById('del-node-name').textContent = name;
+            document.getElementById('del-modal').style.display = 'flex';
+        }
+        function closeDeleteModal() {
+            currentDelNode = '';
+            document.getElementById('del-modal').style.display = 'none';
+        }
+        async function confirmDeleteNode(purge) {
+            if (!currentDelNode) return;
+            const nodeName = currentDelNode;
+            closeDeleteModal();
+            appendTerm('\\n[节点管理] 正在移除节点 ' + nodeName + ' (清空云盘: ' + purge + ')...\\n');
+            try {
+                const res = await fetch('/api/delete_node', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: nodeName, purge_gdrive: purge })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    appendTerm('[+] ' + data.msg + '\\n');
+                    loadNodes();
+                } else {
+                    appendTerm('[-] 操作失败: ' + data.error + '\\n');
+                    alert('操作失败: ' + data.error);
+                }
+            } catch(e) {
+                appendTerm('[-] 请求异常: ' + e + '\\n');
+            }
+        }
+
+        async function loadNodes() {
+            try {
+                const res = await fetch('/api/nodes');
+                if (res.status === 401) { window.location = '/login'; return; }
+                const data = await res.json();
+                const tbody = document.getElementById('nodes-tbody');
+                const countEl = document.getElementById('nodes-count');
+                const master = data.master || 'vps-45.130.166.10';
+                const nodes = data.nodes || [];
+                countEl.textContent = nodes.length + 1;
+
+                let html = `
+                    <tr style="border-bottom: 1px solid var(--border); background: rgba(56, 189, 248, 0.04);">
+                        <td style="padding: 10px 8px;"><span style="color: var(--primary);">🖥️ 海外主控</span></td>
+                        <td style="padding: 10px 8px;"><b>${master}</b></td>
+                        <td style="padding: 10px 8px;"><code>本机 (127.0.0.1)</code></td>
+                        <td style="padding: 10px 8px;"><span style="color: var(--success); font-weight: 600;">● 每日 03:17</span></td>
+                        <td style="padding: 10px 8px; text-align: right;">
+                            <button style="padding: 4px 10px; font-size: 12px;" onclick="runCmd('vps-backup archive')">⚡ 备份本机</button>
+                            <button style="padding: 4px 10px; font-size: 12px;" onclick="runCmd('vps-backup list')">📂 归档</button>
+                        </td>
+                    </tr>
+                `;
+
+                nodes.forEach(n => {
+                    const typeLabel = n.type === 'serv00' ? '🌐 Serv00' : '🐧 Linux VPS';
+                    html += `
+                        <tr style="border-bottom: 1px solid var(--border);">
+                            <td style="padding: 10px 8px;"><span>${typeLabel}</span></td>
+                            <td style="padding: 10px 8px;"><b>${n.name}</b></td>
+                            <td style="padding: 10px 8px;"><code>${n.user}@${n.host}:${n.port}</code></td>
+                            <td style="padding: 10px 8px;"><span style="color: var(--success); font-weight: 600;">● 自动流式直传</span></td>
+                            <td style="padding: 10px 8px; text-align: right; display: flex; gap: 6px; justify-content: flex-end;">
+                                <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('python3 /usr/local/bin/vps-backup-nodes.py ' + '${n.name}')">⚡ 备份</button>
+                                <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/' + '${n.name}/')">📂 归档</button>
+                                <button style="padding: 4px 8px; font-size: 12px; background: #dc2626; border-color: #ef4444;" onclick="openDeleteModal('${n.name}')">🗑️ 移除</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+
+                tbody.innerHTML = html;
+            } catch(e) {
+                console.error(e);
+            }
         }
 
         async function checkTgStatus() {
@@ -477,10 +586,39 @@ HTML_PAGE = """<!DOCTYPE html>
             } catch(e) {}
         }
 
-        // 初始拉取配额与 Telegram 状态
+        // 初始拉取配额与节点列表、Telegram 状态
         fetchQuota();
+        loadNodes();
         checkTgStatus();
     </script>
+
+    <!-- 删除节点确认弹窗 -->
+    <div id="del-modal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 500px; width: 90%;">
+            <h3 style="color: #ef4444; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                ⚠️ 确认移除 / 删除受控节点
+            </h3>
+            <p style="font-size: 14px; margin-bottom: 12px;">
+                目标节点: <code id="del-node-name" style="color: var(--primary); font-size: 15px; font-weight: bold;"></code>
+            </p>
+            <div style="background: #0f172a; border: 1px solid var(--border); border-radius: 8px; padding: 12px; font-size: 13px; color: var(--text-dim); margin-bottom: 18px; line-height: 1.6;">
+                <b>请选择删除处理模式：</b><br>
+                • <span style="color: #f8fafc;">仅移除监控</span>：从自动备份调度移除，<b>云盘历史归档完全保留</b>。<br>
+                • <span style="color: #ef4444;">彻底清空云盘</span>：从调度移除，并<b>永久清空该节点在 Google Drive 上的所有备份</b>！
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 10px;">
+                <button style="background: #334155; border-color: #475569; justify-content: center;" onclick="confirmDeleteNode(false)">
+                    ❌ 仅移除监控 (保留云盘备份)
+                </button>
+                <button style="background: #dc2626; border-color: #ef4444; justify-content: center;" onclick="confirmDeleteNode(true)">
+                    💥 彻底删除并清空云盘备份
+                </button>
+                <button style="justify-content: center; background: transparent;" onclick="closeDeleteModal()">
+                    🔙 取消返回
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
 """
@@ -624,6 +762,38 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"total": total, "used": used, "free": free}).encode("utf-8"))
+            return
+
+        if self.path == "/api/nodes":
+            nodes_file = "/etc/vps-backup/nodes.json"
+            nodes = []
+            if os.path.exists(nodes_file):
+                try:
+                    with open(nodes_file, "r", encoding="utf-8") as f:
+                        raw_nodes = json.load(f)
+                        for n in raw_nodes:
+                            nodes.append({
+                                "name": n.get("name") or f"vps-{n.get('host')}",
+                                "host": n.get("host", ""),
+                                "port": n.get("port", 22),
+                                "user": n.get("user", "root"),
+                                "type": n.get("type", "linux")
+                            })
+                except Exception:
+                    nodes = []
+            master_name = "vps-45.130.166.10"
+            if os.path.exists("/etc/vps-backup/backup.conf"):
+                try:
+                    with open("/etc/vps-backup/backup.conf", "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            if line.strip().startswith("BACKUP_NAME="):
+                                master_name = line.strip().split("=", 1)[1].strip('"\'')
+                except:
+                    pass
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"master": master_name, "nodes": nodes}).encode("utf-8"))
             return
 
         # 默认主页
@@ -791,6 +961,79 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"output": output}).encode("utf-8"))
+            return
+
+        if self.path == "/api/delete_node":
+            data = json.loads(post_data or "{}")
+            name = data.get("name", "").strip()
+            purge_gdrive = bool(data.get("purge_gdrive", False))
+
+            master_name = "vps-45.130.166.10"
+            if os.path.exists("/etc/vps-backup/backup.conf"):
+                try:
+                    with open("/etc/vps-backup/backup.conf", "r", encoding="utf-8", errors="ignore") as f:
+                        for line in f:
+                            if line.strip().startswith("BACKUP_NAME="):
+                                master_name = line.strip().split("=", 1)[1].strip('"\'')
+                except:
+                    pass
+
+            if not name or name == master_name:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": "无效的节点名称或禁止删除本机主控节点"}).encode("utf-8"))
+                return
+
+            nodes_file = "/etc/vps-backup/nodes.json"
+            nodes = []
+            if os.path.exists(nodes_file):
+                try:
+                    with open(nodes_file, "r", encoding="utf-8") as f:
+                        nodes = json.load(f)
+                except Exception:
+                    nodes = []
+
+            target = next((n for n in nodes if n.get("name") == name or n.get("host") == name), None)
+            if not target:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": f"未找到节点 {name}"}).encode("utf-8"))
+                return
+
+            real_name = target.get("name") or name
+            new_nodes = [n for n in nodes if n.get("name") != real_name and n.get("host") != target.get("host")]
+            os.makedirs(os.path.dirname(nodes_file), exist_ok=True)
+            with open(nodes_file, "w", encoding="utf-8") as f:
+                json.dump(new_nodes, f, ensure_ascii=False, indent=2)
+            os.chmod(nodes_file, 0o600)
+
+            purge_msg = ""
+            if purge_gdrive:
+                cmd = ["rclone", "purge", "--bind", "0.0.0.0", f"gdrive:vps-backup/{real_name}/"]
+                p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if p.returncode == 0:
+                    purge_msg = "，并已彻底清空其在 Google Drive 上的所有备份！"
+                else:
+                    purge_msg = f"，但清空云盘目录失败: {p.stderr[:200]}"
+            else:
+                purge_msg = "，已保留其在云盘上的历史归档。"
+
+            try:
+                tg_msg = f"🗑️ <b>[Web控制台节点删除通知]</b>\n受控节点 <code>{real_name}</code> 已成功移除{purge_msg}"
+                subprocess.run(
+                    ["python3", "/usr/local/bin/vps-backup-nodes.py", "_notify", tg_msg],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception:
+                pass
+
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(json.dumps({"ok": True, "msg": f"节点 {real_name} 已成功移除{purge_msg}"}).encode("utf-8"))
             return
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):

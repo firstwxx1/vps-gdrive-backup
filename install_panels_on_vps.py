@@ -13,14 +13,15 @@ def deploy_panels_and_bot():
     sftp = client.open_sftp()
     
     # 1. 上传各面板脚本
-    print("[+] 上传更新后的面板与 Telegram 机器人脚本...")
+    print("[+] 上传更新后的面板、多节点备份引擎与 Telegram 机器人脚本...")
     sftp.put(os.path.join(BASE_DIR, "vps-backup-panel.sh"), "/usr/local/bin/vps-backup-panel")
     sftp.put(os.path.join(BASE_DIR, "web_panel.py"), "/usr/local/bin/vps-backup-web.py")
     sftp.put(os.path.join(BASE_DIR, "tg_bot.py"), "/usr/local/bin/vps-backup-bot.py")
+    sftp.put(os.path.join(BASE_DIR, "vps-backup-nodes.py"), "/usr/local/bin/vps-backup-nodes.py")
     sftp.close()
     
     cmd = """
-    chmod +x /usr/local/bin/vps-backup-panel /usr/local/bin/vps-backup-web.py /usr/local/bin/vps-backup-bot.py
+    chmod +x /usr/local/bin/vps-backup-panel /usr/local/bin/vps-backup-web.py /usr/local/bin/vps-backup-bot.py /usr/local/bin/vps-backup-nodes.py
 
     # 部署 Telegram Bot 服务
     cat > /etc/systemd/system/vps-backup-bot.service <<EOF
@@ -41,9 +42,11 @@ EOF
 
     systemctl daemon-reload
     systemctl restart vps-backup-web
+    systemctl restart vps-backup-bot
     systemctl enable vps-backup-bot 2>/dev/null || true
     echo "Web & Bot 服务状态："
     systemctl status vps-backup-web --no-pager | head -n 5
+    systemctl status vps-backup-bot --no-pager | head -n 5
     """
     stdin, stdout, stderr = client.exec_command(cmd)
     out = stdout.read().decode('utf-8', errors='ignore')

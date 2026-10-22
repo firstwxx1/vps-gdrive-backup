@@ -85,10 +85,79 @@ tail_logs() {
     fi
 }
 
+manage_nodes() {
+    while true; do
+        header
+        echo -e "${BOLD}${CYAN}=== 🌐 多服务器节点管理中心 ===${NC}\n"
+        echo -e "已纳管远程节点列表："
+        python3 /usr/local/bin/vps-backup-nodes.py list 2>/dev/null || echo -e "  ${YELLOW}(暂无远程节点)${NC}"
+        echo
+        echo -e "  ${GREEN}[1]${NC} ➕ 接入新 VPS 节点 (流式无感直传 Google Drive)"
+        echo -e "  ${GREEN}[2]${NC} 🗑️ 移除/删除已纳管节点 (支持清空云盘备份)"
+        echo -e "  ${GREEN}[3]${NC} ⚡ 立即执行全节点并发流式备份"
+        echo -e "  ${GREEN}[4]${NC} 📂 查看 Google Drive 全节点备份文件"
+        echo -e "  ${GREEN}[0]${NC} 返回主菜单"
+        echo
+        read -r -p "请选择管理操作 [0-4]: " n_opt
+        case "$n_opt" in
+            1) deploy_new_vps ;;
+            2) delete_node_cli ;;
+            3)
+                echo -e "\n[*] 正在启动全节点流式备份..."
+                python3 /usr/local/bin/vps-backup-nodes.py all
+                pause
+                ;;
+            4) list_backups ;;
+            0|q) break ;;
+            *) echo -e "${RED}无效输入${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+delete_node_cli() {
+    header
+    echo -e "${BOLD}${CYAN}=== 🗑️ 删除 / 移除已纳管节点 ===${NC}\n"
+    python3 /usr/local/bin/vps-backup-nodes.py list 2>/dev/null
+    echo
+    read -r -p "请输入要移除的节点名称 (例如 vps-124.222.59.251 或 serv00-ztwotv): " del_name
+    del_name=$(echo "$del_name" | tr -d '[:space:]')
+    if [ -z "$del_name" ]; then
+        echo -e "${YELLOW}未输入节点名称，操作已取消${NC}"
+        pause
+        return
+    fi
+
+    echo
+    echo -e "请选择删除模式："
+    echo -e "  ${GREEN}[1]${NC} 仅移除监控 (保留 Google Drive 上的所有历史归档)"
+    echo -e "  ${RED}[2]${NC} 彻底移除并清空该节点在云盘上的所有备份归档 (不可逆！)"
+    echo -e "  ${YELLOW}[0]${NC} 取消"
+    echo
+    read -r -p "请选择 [1/2/0]: " del_choice
+    case "$del_choice" in
+        1)
+            python3 /usr/local/bin/vps-backup-nodes.py del "$del_name"
+            ;;
+        2)
+            read -r -p "⚠️ 确认要彻底清空该节点在 Google Drive 上的数据吗？(输入 yes 确认): " confirm
+            if [ "$confirm" = "yes" ]; then
+                python3 /usr/local/bin/vps-backup-nodes.py del "$del_name" --purge
+            else
+                echo -e "${YELLOW}操作已取消${NC}"
+            fi
+            ;;
+        *)
+            echo -e "${YELLOW}操作已取消${NC}"
+            ;;
+    esac
+    pause
+}
+
 deploy_new_vps() {
     header
-    echo -e "${BOLD}${CYAN}=== 部署新 VPS / 服务器自动备份节点 ===${NC}\n"
-    echo "将本机已配置好的 5TB Google Drive 授权和备份程序自动部署到其他服务器。"
+    echo -e "${BOLD}${CYAN}=== 🌐 接入并纳管新 VPS 节点 ===${NC}\n"
+    echo "通过海外主控建立跨国 SSH 隧道，流式打包目标机数据直传 Google Drive 5TB。"
+    echo "支持国内无外网机器/非root sudo用户/Serv00，零占用目标机磁盘、免安装 rclone！"
     echo
     read -r -p "请输入新服务器 IP 地址或域名: " r_host
     if [ -z "$r_host" ]; then echo -e "${YELLOW}已取消${NC}"; pause; return; fi
@@ -96,14 +165,12 @@ deploy_new_vps() {
     r_port="${r_port:-22}"
     read -r -p "请输入 SSH 用户名 [默认 root]: " r_user
     r_user="${r_user:-root}"
-    read -s -r -p "请输入 SSH 密码 (若已配置密钥可直接回车): " r_pass
+    read -s -r -p "请输入 SSH 密码: " r_pass
     echo
 
-    echo -e "\n[*] 开始自动连接并部署到 $r_user@$r_host:$r_port ..."
-    
-    # 借助 python paramiko 或 sshpass 进行部署
+    echo -e "\n[*] 开始建立连接并接入节点 $r_user@$r_host:$r_port ..."
     python3 -c "
-import paramiko, sys, os
+import paramiko, json, os, subprocess
 
 host = '$r_host'
 port = int('$r_port')
@@ -113,38 +180,40 @@ password = '''$r_pass''' if '''$r_pass''' else None
 client = paramiko.SSHClient()
 client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 try:
-    print(f'[+] 正在建立 SSH 连接到 {user}@{host}:{port} ...')
+    print(f'[+] 正在验证 SSH 连接 {user}@{host}:{port} ...')
     client.connect(host, port=port, username=user, password=password, timeout=15)
-    print('[+] 连接成功！创建远程临时安装目录...')
-    remote_tmp = '/tmp/vps-backup-installer'
-    client.exec_command(f'rm -rf {remote_tmp} && mkdir -p -m 700 {remote_tmp}')
-    
-    sftp = client.open_sftp()
-    print('[+] 上传程序脚本与 Google Drive 授权配置...')
-    for f in ['/usr/local/bin/vps-backup', '/etc/vps-backup/backup.conf.example']:
-        if os.path.exists(f):
-            sftp.put(f, f'{remote_tmp}/' + os.path.basename(f))
-            
-    # 上传 rclone 授权配置
-    rc_conf = os.path.expanduser('~/.config/rclone/rclone.conf')
-    if os.path.exists(rc_conf):
-        sftp.put(rc_conf, f'{remote_tmp}/rclone.conf')
-    sftp.close()
-    
-    print('[+] 执行远程自动化安装...')
-    cmd = f'cd {remote_tmp} && curl -fsSL https://rclone.org/install.sh | bash && install -m 755 vps-backup /usr/local/bin/ && mkdir -p ~/.config/rclone && cp -f rclone.conf ~/.config/rclone/ && mkdir -p /etc/vps-backup && cp -n backup.conf.example /etc/vps-backup/backup.conf && (crontab -l 2>/dev/null | grep -v vps-backup ; echo \"$((RANDOM % 60)) 3 * * * /usr/local/bin/vps-backup >/dev/null 2>&1\") | crontab - && rm -rf {remote_tmp}'
-    stdin, stdout, stderr = client.exec_command(cmd, get_pty=True)
-    for line in stdout:
-        print('  ' + line.rstrip())
-        
-    print('[+] 测试新服务器的云盘连接...')
-    stdin, stdout, stderr = client.exec_command('/usr/local/bin/vps-backup test', get_pty=True)
-    for line in stdout:
-        print('  ' + line.rstrip())
+    _, stdout, _ = client.exec_command('hostname; uname -sr; df -h / | tail -n 1', timeout=15)
+    info = stdout.read().decode('utf-8', errors='ignore').strip()
     client.close()
-    print('\n[OK] 新服务器部署成功！已加入每日定时自动备份。')
+    print('[+] 连接验证成功！节点信息:\n' + info)
+
+    node_name = f'vps-{host}'
+    nodes_file = '/etc/vps-backup/nodes.json'
+    nodes = []
+    if os.path.exists(nodes_file):
+        try:
+            with open(nodes_file, 'r', encoding='utf-8') as f:
+                nodes = json.load(f)
+        except:
+            nodes = []
+    nodes = [n for n in nodes if n.get('host') != host]
+    nodes.append({
+        'name': node_name,
+        'host': host,
+        'port': port,
+        'user': user,
+        'password': '''$r_pass''',
+        'type': 'serv00' if 'serv00' in host else 'linux'
+    })
+    os.makedirs(os.path.dirname(nodes_file), exist_ok=True)
+    with open(nodes_file, 'w', encoding='utf-8') as f:
+        json.dump(nodes, f, ensure_ascii=False, indent=2)
+    os.chmod(nodes_file, 0o600)
+    print(f'\n[OK] 节点 {node_name} 已成功注册并纳入每日凌晨定时备份调度！')
+    print('[*] 正在执行首次流式直传备份测试...')
+    subprocess.run(['python3', '/usr/local/bin/vps-backup-nodes.py', node_name])
 except Exception as e:
-    print(f'[ERROR] 部署失败: {e}')
+    print(f'[ERROR] 接入失败: {e}')
 "
     pause
 }
@@ -245,7 +314,7 @@ main_menu() {
         echo -e "  ${GREEN}[3]${NC} 📂 查看云盘上的备份列表 (日/周/月归档)"
         echo -e "  ${GREEN}[4]${NC} 🔄 一键恢复备份文件到测试目录"
         echo -e "  ${GREEN}[5]${NC} 📜 查看实时备份日志 (tail -f)"
-        echo -e "  ${GREEN}[6]${NC} 🌐 一键部署新 VPS 节点 (批量纳入自动备份)"
+        echo -e "  ${GREEN}[6]${NC} 🌐 多服务器节点管理中心 (部署新机 / 查看节点 / 删除节点)"
         echo -e "  ${GREEN}[7]${NC} ⚙️ 编辑备份配置 (修改备份目录/数据库/策略)"
         echo -e "  ${GREEN}[8]${NC} 🩺 运行自检测试 (测试读写与 Telegram 通知)"
         echo -e "  ${GREEN}[9]${NC} 🤖 配置并启用 Telegram 手机控制面板 (内联交互按钮)"
@@ -260,7 +329,7 @@ main_menu() {
             3) list_backups ;;
             4) restore_backup ;;
             5) tail_logs ;;
-            6) deploy_new_vps ;;
+            6) manage_nodes ;;
             7) edit_config ;;
             8) run_test ;;
             9|t) configure_telegram ;;
