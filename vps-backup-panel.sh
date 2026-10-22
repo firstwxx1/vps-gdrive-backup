@@ -354,32 +354,93 @@ manage_web() {
     pause
 }
 
+manage_files_menu() {
+    while true; do
+        header
+        echo -e "${BOLD}${CYAN}=== 📂 云盘文件与恢复 ===${NC}\n"
+        echo -e "  ${GREEN}[1]${NC} 📂 查看 Google Drive 备份文件列表"
+        echo -e "  ${GREEN}[2]${NC} 📊 查看云盘容量与配额"
+        echo -e "  ${GREEN}[3]${NC} 🔄 一键恢复备份文件到测试目录"
+        echo -e "  ${GREEN}[0]${NC} 返回主菜单"
+        echo
+        read -r -p "请选择 [0-3]: " f_opt
+        case "$f_opt" in
+            1) list_backups ;;
+            2) show_quota ;;
+            3) restore_backup ;;
+            0|q) break ;;
+            *) echo -e "${RED}无效输入${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+manage_status_menu() {
+    while true; do
+        header
+        echo -e "${BOLD}${CYAN}=== 🖥️ 系统状态与日志 ===${NC}\n"
+        echo -e "  ${GREEN}[1]${NC} 🛡️ 检查保活与开机自启状态"
+        echo -e "  ${GREEN}[2]${NC} 📜 查看实时备份日志 (tail -f)"
+        echo -e "  ${GREEN}[3]${NC} 🩺 运行自检与 Telegram 报警测试"
+        echo -e "  ${GREEN}[0]${NC} 返回主菜单"
+        echo
+        read -r -p "请选择 [0-3]: " s_opt
+        case "$s_opt" in
+            1)
+                if [ -x /usr/local/bin/vps-backup-keepalive ]; then
+                    /usr/local/bin/vps-backup-keepalive status
+                else
+                    echo -e "${GREEN}保活守护服务正常运行中${NC}"
+                fi
+                pause
+                ;;
+            2) tail_logs ;;
+            3) run_test ;;
+            0|q) break ;;
+            *) echo -e "${RED}无效输入${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
+manage_remote_menu() {
+    while true; do
+        header
+        echo -e "${BOLD}${CYAN}=== 🔑 Web 面板与 Telegram ===${NC}\n"
+        echo -e "  ${GREEN}[1]${NC} 💻 Web 浏览器终端管理控制台 (端口 8999)"
+        echo -e "  ${GREEN}[2]${NC} 🤖 配置 / 重新绑定 Telegram 机器人"
+        echo -e "  ${GREEN}[0]${NC} 返回主菜单"
+        echo
+        read -r -p "请选择 [0-2]: " r_opt
+        case "$r_opt" in
+            1) manage_web ;;
+            2) configure_telegram ;;
+            0|q) break ;;
+            *) echo -e "${RED}无效输入${NC}"; sleep 1 ;;
+        esac
+    done
+}
+
 main_menu() {
     while true; do
         header
         echo -e "${BOLD}请选择管理操作：${NC}"
         echo
-        echo -e "  ${GREEN}[1]${NC} ▶ 立即执行备份 (自动热备份数据库并上传到云盘)"
-        echo -e "  ${GREEN}[2]${NC} 📊 查看 Google Drive 5TB 容量与配额"
-        echo -e "  ${GREEN}[3]${NC} 📂 查看云盘上的备份列表 (日/周/月归档)"
-        echo -e "  ${GREEN}[4]${NC} 🔄 一键恢复备份文件到测试目录"
-        echo -e "  ${GREEN}[5]${NC} 📜 查看实时备份日志 (tail -f)"
-        echo -e "  ${GREEN}[6]${NC} 🌐 多服务器节点管理中心 (部署新机 / 查看节点 / 删除节点)"
-        echo -e "  ${GREEN}[7]${NC} ⚙️ 编辑备份配置 (修改备份目录/数据库/策略)"
-        echo -e "  ${GREEN}[8]${NC} 🩺 运行自检测试 (测试读写与 Telegram 通知)"
-        echo -e "  ${GREEN}[9]${NC} 🤖 配置并启用 Telegram 手机控制面板 (内联交互按钮)"
-        echo -e "  ${GREEN}[W]${NC} 💻 Web 浏览器终端管理面板开关"
+        echo -e "  ${GREEN}[1]${NC} ⚡ 立即执行备份 (主控 / 全节点并发)"
+        echo -e "  ${GREEN}[2]${NC} 🌐 多服务器节点管理 (接入 / 改名 / 移除)"
+        echo -e "  ${GREEN}[3]${NC} 📂 云盘文件浏览与一键恢复"
+        echo -e "  ${GREEN}[4]${NC} ⚙️ 备份策略与配置修改"
+        echo -e "  ${GREEN}[5]${NC} 🖥️ 状态监控、保活自检与日志"
+        echo -e "  ${GREEN}[6]${NC} 🔑 Web 面板与 Telegram 绑定"
         echo
         echo -e "  ${RED}[0]${NC} 退出面板"
         echo -e "${CYAN}------------------------------------------------------------------------${NC}"
-        read -r -p "请输入选项编号: " choice
+        read -r -p "请输入选项编号 [0-6]: " choice
         case "${choice,,}" in
             1) run_now ;;
-            2) show_quota ;;
-            3) list_backups ;;
-            4) restore_backup ;;
-            5) tail_logs ;;
-            6) manage_nodes ;;
+            2) manage_nodes ;;
+            3) manage_files_menu ;;
+            4) edit_config ;;
+            5) manage_status_menu ;;
+            6) manage_remote_menu ;;
             7) edit_config ;;
             8) run_test ;;
             9|t) configure_telegram ;;

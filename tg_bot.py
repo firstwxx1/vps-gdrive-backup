@@ -236,40 +236,25 @@ class TelegramBot:
 
     def register_commands(self):
         commands = [
-            {"command": "menu", "description": "🏠 打开全功能主控面板与底部菜单"},
-            {"command": "backup", "description": "🚀 备份与恢复中心 (全量/增量/Serv00)"},
-            {"command": "files", "description": "📂 云盘文件浏览、一键恢复与删除"},
-            {"command": "db", "description": "🗄️ 数据库热备管理 (导出并直发TG)"},
-            {"command": "nodes", "description": "🌐 多节点管理与一键部署新 VPS"},
-            {"command": "rename", "description": "✏️ 修改 VPS 节点名称并同步云盘目录"},
-            {"command": "config", "description": "⚙️ 备份目录、保留天数与定时策略设置"},
-            {"command": "docker", "description": "🐳 Docker 容器状态、重启与日志管理"},
-            {"command": "status", "description": "🖥️ 服务器负载、磁盘、大目录与进程监控"},
-            {"command": "web", "description": "💻 查看 Web 终端地址与登录密码"},
-            {"command": "sh", "description": "💻 执行远程 Linux 命令 (例: /sh df -h)"},
-            {"command": "log", "description": "📜 查看近期备份与运行日志"},
+            {"command": "menu", "description": "🏠 打开控制面板"},
+            {"command": "backup", "description": "⚡ 立即执行全量备份"},
+            {"command": "nodes", "description": "🌐 节点管理与更名"},
+            {"command": "files", "description": "📂 查看云盘备份文件"},
+            {"command": "status", "description": "🖥️ 服务器监控看板"},
+            {"command": "web", "description": "💻 Web 终端地址与密码"},
         ]
         res = self.api_call("setMyCommands", {"commands": commands})
         if res and res.get("ok"):
             self.api_call("setChatMenuButton", {"menu_button": {"type": "commands"}})
             self.commands_registered = True
             self.last_token = self.token
-            print("[+] Telegram 左下角命令菜单注册成功！")
+            print("[+] Telegram 左下角命令菜单精简注册成功！")
             if self.admin_id:
-                self.send_msg(self.admin_id, "✅ <b>已为你收起底部大键盘</b>（你可随时通过消息内按钮或左下角 <b>Menu</b> 按钮操作）", reply_markup={"remove_keyboard": True})
+                self.send_msg(self.admin_id, "✨ <b>菜单界面已精简优化！</b>", reply_markup={"remove_keyboard": True})
                 self.show_home(self.admin_id, with_reply_kb=False)
 
     def get_reply_keyboard(self):
-        return {
-            "keyboard": [
-                [{"text": "🚀 备份与恢复"}, {"text": "📂 云盘文件管理"}, {"text": "🌐 节点与部署"}],
-                [{"text": "🗄️ 数据库热备"}, {"text": "🐳 Docker 管理"}, {"text": "⚙️ 策略与配置"}],
-                [{"text": "🖥️ 服务器状态"}, {"text": "💻 快捷运维/终端"}, {"text": "🔽 收起底部键盘"}],
-            ],
-            "resize_keyboard": True,
-            "is_persistent": False,
-            "one_time_keyboard": True,
-        }
+        return {"remove_keyboard": True}
 
     def send_msg(self, chat_id, text, reply_markup=None, parse_mode="HTML"):
         data = {
@@ -311,28 +296,19 @@ class TelegramBot:
         return {
             "inline_keyboard": [
                 [
-                    {"text": "🚀 备份与恢复中心", "callback_data": "nav:backup"},
-                    {"text": "📂 云盘文件与空间", "callback_data": "nav:files"},
+                    {"text": "⚡ 立即全量备份 (主控+节点)", "callback_data": "act:node_backup_all"},
                 ],
                 [
-                    {"text": "🗄️ 数据库热备直发", "callback_data": "nav:db"},
-                    {"text": "🌐 多节点与新机部署", "callback_data": "nav:nodes"},
+                    {"text": "🌐 节点管理中心", "callback_data": "nav:nodes"},
+                    {"text": "📂 云盘备份文件", "callback_data": "nav:files"},
                 ],
                 [
-                    {"text": "⚙️ 策略与配置修改", "callback_data": "nav:config"},
-                    {"text": "🐳 Docker 容器管理", "callback_data": "nav:docker"},
+                    {"text": "⚙️ 备份策略与定时", "callback_data": "nav:config"},
+                    {"text": "🖥️ 系统监控看板", "callback_data": "nav:status"},
                 ],
                 [
-                    {"text": "🖥️ 服务器监控看板", "callback_data": "nav:status"},
-                    {"text": "💻 快捷运维与终端", "callback_data": "nav:ops"},
-                ],
-                [
-                    {"text": "⚡ 立即一键全量备份", "callback_data": "act:bk_run"},
-                    {"text": "🔄 刷新主控台", "callback_data": "nav:home"},
-                ],
-                [
-                    {"text": "⌨️ 呼出底部按键", "callback_data": "act:kb_show"},
-                    {"text": "🔽 收起底部按键", "callback_data": "act:kb_hide"},
+                    {"text": "🛠️ 运维与高级工具", "callback_data": "nav:ops"},
+                    {"text": "🔄 刷新状态", "callback_data": "nav:home"},
                 ],
             ]
         }
@@ -342,30 +318,21 @@ class TelegramBot:
         host = os.uname().nodename
         bname = self.conf.get("BACKUP_NAME", host)
         cron_time = get_cron_schedule()
-        stream = "开启 (免占本地磁盘)" if self.conf.get("STREAM_UPLOAD") == "true" else "关闭 (本地打包)"
-        notify = "成功/失败均通知" if self.conf.get("NOTIFY_ON_SUCCESS") == "true" else "仅失败报警"
-        enc = "🔒 已开启 AES-256" if self.conf.get("ENCRYPT_PASSWORD") else "🔓 未加密"
-        db_cnt = len(self.conf.get("DOCKER_MYSQL_CONTAINERS", [])) + len(self.conf.get("DOCKER_PG_CONTAINERS", []))
+        nodes = load_nodes()
+        stream = "开启" if self.conf.get("STREAM_UPLOAD") == "true" else "关闭"
         return (
-            f"<b>☁️ Google Drive 5TB 全能备份与运维中心</b>\n"
+            f"<b>☁️ Google Drive VPS 备份中心</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"📍 <b>当前主控节点</b>: <code>{bname}</code> ({host})\n"
-            f"⏰ <b>每日定时任务</b>: <code>每天 {cron_time} (UTC)</code>\n"
-            f"🛡️ <b>保活守护状态</b>: <code>🟢 双重守护中 (开机自启 + 3分钟巡检自愈)</code>\n"
-            f"🌊 <b>上传模式</b>: <code>{stream}</code>\n"
-            f"🗄️ <b>热备数据库数</b>: <code>{db_cnt} 个容器实例</code>\n"
-            f"🔐 <b>加密状态</b>: <code>{enc}</code>\n"
-            f"🔔 <b>通知策略</b>: <code>{notify}</code>\n"
-            f"📅 <b>保留周期</b>: <code>日{self.conf.get('KEEP_DAILY_DAYS')}天 / 周{self.conf.get('KEEP_WEEKLY_DAYS')}天 / 月{self.conf.get('KEEP_MONTHLY_DAYS')}天</code>\n"
+            f"🖥️ <b>主控</b>: <code>{html_escape(bname)}</code> (🟢 运行自愈守护)\n"
+            f"⏰ <b>定时</b>: 每日 <code>{cron_time} UTC</code> (流式: {stream})\n"
+            f"🌐 <b>节点</b>: <code>{len(nodes) + 1} 台</code> (主控+远程)\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 <i>你可使用下方内联菜单、底部常驻键盘或左下角 Menu 菜单进行全方位控制：</i>"
+            f"点击下方按钮进行管理："
         )
 
     def show_home(self, chat_id, msg_id=None, with_reply_kb=False):
         self.user_state.pop(str(chat_id), None)
         text = self.render_home_text()
-        if with_reply_kb:
-            self.send_msg(chat_id, "⌨️ <b>已激活底部常驻快捷键盘与左下角命令菜单！</b>", reply_markup=self.get_reply_keyboard())
         if msg_id:
             self.edit_msg(chat_id, msg_id, text, reply_markup=self.get_home_kb())
         else:
@@ -740,42 +707,40 @@ class TelegramBot:
         self.reload()
         bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
         nodes = load_nodes()
-        node_lines = [f"0. <b>{html_escape(bname)}</b> (<code>本机海外主控节点</code>)"]
-        node_btn_rows = []
+        node_lines = [f"0. <b>{html_escape(bname)}</b> (<code>本机主控</code>)"]
+        node_btn_rows = [
+            [
+                {"text": "⚡ 备份主控", "callback_data": "act:bk_run"},
+                {"text": "📂 云盘文件", "callback_data": f"flist:node:{bname}"},
+                {"text": "✏️ 改名", "callback_data": f"nrename_cf:{bname}"},
+            ]
+        ]
         for idx, n in enumerate(nodes, 1):
             nname = n.get("name", f"vps-{n.get('host')}")
-            node_lines.append(f"{idx}. <b>{html_escape(nname)}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}:{n.get('port', 22)}</code>)")
+            node_lines.append(f"{idx}. <b>{html_escape(nname)}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}</code>)")
             node_btn_rows.append([
-                {"text": f"⚡ 备份 {nname[:10]}", "callback_data": f"nbk:{nname}"},
-                {"text": "📂 查看", "callback_data": f"flist:node:{nname}"},
+                {"text": f"⚡ {nname[:8]}", "callback_data": f"nbk:{nname}"},
+                {"text": "📂 文件", "callback_data": f"flist:node:{nname}"},
                 {"text": "✏️ 改名", "callback_data": f"nrename_cf:{nname}"},
                 {"text": "🗑️ 移除", "callback_data": f"ndel_cf:{nname}"},
             ])
         body = "\n".join(node_lines)
         text = (
-            f"<b>🌐 多服务器节点管理与一键部署</b>\n"
+            f"<b>🌐 多服务器节点管理 ({len(nodes) + 1} 台)</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"<b>已纳管服务器 ({len(nodes) + 1} 台)</b>:\n{body}\n"
+            f"{body}\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"💡 支持<b>国内无外网 VPS (SSH 隧道流式拉取)</b>、<b>非 root (sudo) 用户</b>及 <b>Serv00</b>，所有节点均直接流式归档至 5TB Google Drive！"
+            f"可在各节点下方点击按钮直接备份、查看文件、改名或移除："
         )
         kb = {
             "inline_keyboard": [
                 *node_btn_rows,
                 [
-                    {"text": "➕ 一键添加/部署新 VPS 节点", "callback_data": "act:node_add_prompt"},
-                    {"text": "✏️ 修改 VPS 节点名称", "callback_data": "act:node_rename_menu"},
+                    {"text": "➕ 接入新 VPS 节点", "callback_data": "act:node_add_prompt"},
+                    {"text": "🛰️ 检测节点连通性", "callback_data": "act:node_ping_all"},
                 ],
                 [
-                    {"text": "🛰️ 批量检测所有节点连通性", "callback_data": "act:node_ping_all"},
-                    {"text": "☁️ 云盘全节点备份总览", "callback_data": "act:node_cloud_dirs"},
-                ],
-                [
-                    {"text": "🚀 全节点一键并发备份", "callback_data": "act:node_backup_all"},
-                    {"text": "🗑️ 移除/删除已纳管节点", "callback_data": "act:node_del_menu"},
-                ],
-                [
-                    {"text": "🔙 返回主控台", "callback_data": "nav:home"},
+                    {"text": "🔙 返回主菜单", "callback_data": "nav:home"},
                 ],
             ]
         }
@@ -1032,27 +997,27 @@ class TelegramBot:
 
     def show_ops_menu(self, chat_id, msg_id=None):
         text = (
-            "<b>💻 快捷运维与远程 Shell 终端</b>\n"
+            "<b>🛠️ 运维与高级工具箱</b>\n"
             "━━━━━━━━━━━━━━━━━━━━━━\n"
-            "• 点击<b>【⌨️ 进入命令终端模式】</b>后，直接发消息即可在 VPS 上执行任意 Linux 命令\n"
-            "• 或者随时直接发送 <code>/sh 命令</code>（例如 <code>/sh df -h</code>）"
+            "在此可执行数据库热备、Docker容器管理、Web面板运维及远程终端。"
         )
         kb = {
             "inline_keyboard": [
                 [
-                    {"text": "⌨️ 进入交互式 Shell 终端模式", "callback_data": "act:shell_prompt"},
-                ],
-                [
-                    {"text": "🧹 一键清理系统日志与无用缓存", "callback_data": "act:clean_sys"},
-                    {"text": "🐳 清理 Docker 悬空镜像缓存", "callback_data": "act:clean_docker"},
+                    {"text": "🗄️ 数据库热备直发", "callback_data": "nav:db"},
+                    {"text": "🐳 Docker 容器管理", "callback_data": "nav:docker"},
                 ],
                 [
                     {"text": "🔑 查看 Web 面板密码", "callback_data": "act:show_web_pass"},
                     {"text": "🔄 重启 Web 面板 (8999)", "callback_data": "act:restart_web"},
                 ],
                 [
-                    {"text": "📜 查看备份日志 (最新50行)", "callback_data": "act:log_view"},
-                    {"text": "🔙 返回主控台", "callback_data": "nav:home"},
+                    {"text": "⌨️ Shell 终端模式", "callback_data": "act:shell_prompt"},
+                    {"text": "📜 查看最新日志", "callback_data": "act:log_view"},
+                ],
+                [
+                    {"text": "🧹 清理系统/Docker缓存", "callback_data": "act:clean_sys"},
+                    {"text": "🔙 返回主菜单", "callback_data": "nav:home"},
                 ],
             ]
         }
@@ -1501,6 +1466,7 @@ class TelegramBot:
 
         # 命令路由
         if text in ("/start", "/menu", "/help", "菜单", "面板"):
+            self.send_msg(chat_id, "✨ <b>控制中心</b>", reply_markup={"remove_keyboard": True})
             self.show_home(chat_id, with_reply_kb=False)
             return
         elif text.startswith("/backup"):
@@ -1661,7 +1627,7 @@ class TelegramBot:
                 return
 
         # 默认打开主控台
-        self.show_home(chat_id, with_reply_kb=True)
+        self.show_home(chat_id, with_reply_kb=False)
 
     def run(self):
         offset = 0

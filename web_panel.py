@@ -304,14 +304,12 @@ HTML_PAGE = """<!DOCTYPE html>
         </div>
 
         <div class="btn-group">
-            <button class="btn-primary" onclick="runCmd('vps-backup run')">▶ 立即执行全节点备份</button>
-            <button onclick="runCmd('vps-backup list')">📂 查看云盘全节点备份</button>
-            <button onclick="runCmd('rclone about gdrive:')">📊 刷新云盘容量配额</button>
-            <button onclick="runCmd('/usr/local/bin/vps-backup-keepalive status')">🛡️ 检查保活自启状态</button>
-            <button onclick="runCmd('vps-backup test')">🩺 运行自检测试</button>
-            <button onclick="runCmd('tail -n 60 /var/log/vps-backup.log')">📜 查看近期日志</button>
-            <button onclick="runCmd('docker ps')">🐳 查看 Docker 容器</button>
-            <button onclick="clearTerm()">🧹 清空终端屏幕</button>
+            <button class="btn-primary" onclick="runCmd('vps-backup run')">⚡ 立即全量备份</button>
+            <button onclick="runCmd('vps-backup list')">📂 云盘备份文件</button>
+            <button onclick="runCmd('rclone about gdrive:')">📊 云盘容量配额</button>
+            <button onclick="runCmd('/usr/local/bin/vps-backup-keepalive status')">🛡️ 检查保活守护</button>
+            <button onclick="runCmd('tail -n 60 /var/log/vps-backup.log')">📜 近期日志</button>
+            <button onclick="clearTerm()">🧹 清空屏幕</button>
         </div>
 
         <div class="terminal-box">
