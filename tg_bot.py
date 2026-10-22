@@ -241,6 +241,7 @@ class TelegramBot:
             {"command": "files", "description": "📂 云盘文件浏览、一键恢复与删除"},
             {"command": "db", "description": "🗄️ 数据库热备管理 (导出并直发TG)"},
             {"command": "nodes", "description": "🌐 多节点管理与一键部署新 VPS"},
+            {"command": "rename", "description": "✏️ 修改 VPS 节点名称并同步云盘目录"},
             {"command": "config", "description": "⚙️ 备份目录、保留天数与定时策略设置"},
             {"command": "docker", "description": "🐳 Docker 容器状态、重启与日志管理"},
             {"command": "status", "description": "🖥️ 服务器负载、磁盘、大目录与进程监控"},
@@ -745,8 +746,9 @@ class TelegramBot:
             nname = n.get("name", f"vps-{n.get('host')}")
             node_lines.append(f"{idx}. <b>{html_escape(nname)}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}:{n.get('port', 22)}</code>)")
             node_btn_rows.append([
-                {"text": f"⚡ 备份 {nname[:12]}", "callback_data": f"nbk:{nname}"},
+                {"text": f"⚡ 备份 {nname[:10]}", "callback_data": f"nbk:{nname}"},
                 {"text": "📂 查看", "callback_data": f"flist:node:{nname}"},
+                {"text": "✏️ 改名", "callback_data": f"nrename_cf:{nname}"},
                 {"text": "🗑️ 移除", "callback_data": f"ndel_cf:{nname}"},
             ])
         body = "\n".join(node_lines)
@@ -762,14 +764,17 @@ class TelegramBot:
                 *node_btn_rows,
                 [
                     {"text": "➕ 一键添加/部署新 VPS 节点", "callback_data": "act:node_add_prompt"},
-                    {"text": "☁️ 云盘全节点备份总览", "callback_data": "act:node_cloud_dirs"},
+                    {"text": "✏️ 修改 VPS 节点名称", "callback_data": "act:node_rename_menu"},
                 ],
                 [
                     {"text": "🛰️ 批量检测所有节点连通性", "callback_data": "act:node_ping_all"},
-                    {"text": "🚀 全节点一键并发备份", "callback_data": "act:node_backup_all"},
+                    {"text": "☁️ 云盘全节点备份总览", "callback_data": "act:node_cloud_dirs"},
                 ],
                 [
+                    {"text": "🚀 全节点一键并发备份", "callback_data": "act:node_backup_all"},
                     {"text": "🗑️ 移除/删除已纳管节点", "callback_data": "act:node_del_menu"},
+                ],
+                [
                     {"text": "🔙 返回主控台", "callback_data": "nav:home"},
                 ],
             ]
@@ -1237,6 +1242,47 @@ class TelegramBot:
         elif data.startswith("ndel_ok:"):
             _, act, nname = data.split(":", 2)
             self.handle_node_delete(chat_id, msg_id, nname, purge_gdrive=(act == "p"))
+        elif data == "act:node_rename_menu":
+            self.reload()
+            bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
+            nodes = load_nodes()
+            rename_rows = [
+                [{"text": f"🖥️ 本机主控节点: {bname}", "callback_data": f"nrename_cf:{bname}"}]
+            ]
+            for n in nodes:
+                nname = n.get("name", f"vps-{n.get('host')}")
+                rename_rows.append([{"text": f"🌐 远程受控节点: {nname}", "callback_data": f"nrename_cf:{nname}"}])
+            rename_rows.append([{"text": "🔙 返回节点管理", "callback_data": "nav:nodes"}])
+            self.edit_msg(
+                chat_id, msg_id,
+                "<b>✏️ 选择需要修改名称的 VPS 节点</b>\n"
+                "━━━━━━━━━━━━━━━━━━━━━━\n"
+                "💡 更改节点名称后，系统将<b>自动把 Google Drive 云端历史归档同步重命名</b>，无须重新上传！\n\n"
+                "请选择要重命名的节点：",
+                reply_markup={"inline_keyboard": rename_rows}
+            )
+        elif data.startswith("nrename_cf:"):
+            target_name = data.split(":", 1)[1]
+            self.user_state[chat_id] = {
+                "mode": "rename_node",
+                "old_name": target_name,
+                "msg_id": msg_id
+            }
+            text = (
+                f"✏️ <b>【修改节点名称】</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🖥️ <b>当前节点原名</b>: <code>{html_escape(target_name)}</code>\n\n"
+                f"💬 <b>请直接在下方发送该节点的新名称</b>：\n"
+                f"<i>(支持英文字母、数字、下划线、短横线与点，例如: <code>tokyo-01</code> 或 <code>serv00-web</code>)</i>\n\n"
+                f"🔄 确认后，系统将自动同步完成：\n"
+                f"1. 更新本地或多节点配置文件\n"
+                f"2. <b>Google Drive 云端备份目录自动重命名</b> (<code>gdrive:vps-backup/{html_escape(target_name)}</code> ➔ <code>新名称</code>)\n"
+                f"3. 所有历史备份数据完好保留\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"输入 <code>/cancel</code> 可取消改名。"
+            )
+            kb = {"inline_keyboard": [[{"text": "❌ 取消改名", "callback_data": "nav:nodes"}]]}
+            self.edit_msg(chat_id, msg_id, text, reply_markup=kb)
 
         # 配置修改动作
         elif data == "cfg:toggle_stream":
@@ -1469,6 +1515,34 @@ class TelegramBot:
         elif text.startswith("/nodes") or text.startswith("/deploy"):
             self.show_nodes_menu(chat_id)
             return
+        elif text.startswith("/rename") or text.startswith("/renamenode"):
+            parts = text.split()
+            if len(parts) == 3:
+                old_name, new_name = parts[1], parts[2]
+                self.send_msg(chat_id, f"⏳ 正在将节点 <code>{html_escape(old_name)}</code> 重命名为 <code>{html_escape(new_name)}</code> 并同步 Google Drive 云端目录...")
+                def rename_cmd_worker():
+                    cmd = ["python3", "/usr/local/bin/vps-backup-nodes.py", "rename", old_name, new_name]
+                    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    out = (p.stdout + p.stderr).strip()
+                    if p.returncode == 0:
+                        self.send_msg(
+                            chat_id,
+                            f"🎉 <b>[节点改名成功]</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🔄 <code>{html_escape(old_name)}</code> ➔ <b>{html_escape(new_name)}</b>\n"
+                            f"☁️ Google Drive 云端归档目录已完成同步更名！",
+                            reply_markup={"inline_keyboard": [[{"text": "🌐 查看节点中心", "callback_data": "nav:nodes"}]]}
+                        )
+                    else:
+                        self.send_msg(
+                            chat_id,
+                            f"❌ <b>修改节点名称失败：</b>\n<pre>{html_escape(out[:2000])}</pre>"
+                        )
+                threading.Thread(target=rename_cmd_worker, daemon=True).start()
+                return
+            else:
+                self.handle_callback({"id": "0", "from": {"id": chat_id}, "message": {"chat": {"id": chat_id}}, "data": "act:node_rename_menu"})
+                return
         elif text.startswith("/delnode") or text.startswith("/nodedel"):
             self.handle_callback({"id": "0", "from": {"id": chat_id}, "message": {"chat": {"id": chat_id}}, "data": "act:node_del_menu"})
             return
@@ -1542,6 +1616,32 @@ class TelegramBot:
                 set_conf_scalar("ENCRYPT_PASSWORD", pw)
                 self.send_msg(chat_id, "✅ 备份加密设置已更新！")
                 self.show_config_menu(chat_id)
+                return
+            elif mode == "rename_node":
+                old_name = state.get("old_name")
+                self.user_state.pop(chat_id, None)
+                new_name = text.strip()
+                self.send_msg(chat_id, f"⏳ 正在将节点 <code>{html_escape(old_name)}</code> 重命名为 <code>{html_escape(new_name)}</code> 并同步 Google Drive 云端目录...")
+                def rename_worker():
+                    cmd = ["python3", "/usr/local/bin/vps-backup-nodes.py", "rename", old_name, new_name]
+                    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    out = (p.stdout + p.stderr).strip()
+                    if p.returncode == 0:
+                        self.send_msg(
+                            chat_id,
+                            f"🎉 <b>[节点改名成功]</b>\n"
+                            f"━━━━━━━━━━━━━━━━━━━━━━\n"
+                            f"🔄 <code>{html_escape(old_name)}</code> ➔ <b>{html_escape(new_name)}</b>\n"
+                            f"☁️ Google Drive 云端归档目录已完成同步更名！",
+                            reply_markup={"inline_keyboard": [[{"text": "🌐 查看节点中心", "callback_data": "nav:nodes"}]]}
+                        )
+                    else:
+                        self.send_msg(
+                            chat_id,
+                            f"❌ <b>修改节点名称失败：</b>\n<pre>{html_escape(out[:2000])}</pre>",
+                            reply_markup={"inline_keyboard": [[{"text": "🔙 返回节点管理", "callback_data": "nav:nodes"}]]}
+                        )
+                threading.Thread(target=rename_worker, daemon=True).start()
                 return
             elif mode == "deploy_node":
                 self.user_state.pop(chat_id, None)

@@ -113,6 +113,13 @@ if [ -f "$SCRIPT_DIR/vps-backup-keepalive.sh" ]; then
     install -m 755 "$SCRIPT_DIR/vps-backup-keepalive.sh" /usr/local/bin/vps-backup-keepalive
     ln -sf /usr/local/bin/vps-backup-keepalive /usr/local/bin/vps-keepalive
 fi
+if [ -f "$SCRIPT_DIR/vps-backup-nodes.py" ]; then
+    install -m 755 "$SCRIPT_DIR/vps-backup-nodes.py" /usr/local/bin/vps-backup-nodes.py
+    ln -sf /usr/local/bin/vps-backup-nodes.py /usr/local/bin/vps-nodes
+fi
+if [ -f "$SCRIPT_DIR/vps-backup-panel.sh" ]; then
+    install -m 755 "$SCRIPT_DIR/vps-backup-panel.sh" /usr/local/bin/vps-backup-panel
+fi
 
 mkdir -p "$CONF_DIR"; chmod 700 "$CONF_DIR"
 install -m 644 "$SCRIPT_DIR/backup.conf.example" "$CONF_DIR/backup.conf.example"

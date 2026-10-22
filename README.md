@@ -159,6 +159,17 @@ rclone cat gdrive:vps-backup/hk-01/archive/daily/xxx.tar.zst.enc \
   | zstd -dc | tar -xf -
 ```
 
+### 多节点纳管与节点名称修改
+
+支持集中管理与备份多台 VPS（包括海外 VPS、国内无公网机器及 Serv00）：
+- **全端改名**：支持在 **Web 终端控制台**、**Telegram 机器人**及 **SSH 终端面板**中一键修改任何节点名称（含本机海外主控与所有远程受控节点）。
+- **云端秒级同步迁移**：修改名称时，系统自动在 Google Drive 执行服务端秒级目录移动（`rclone moveto gdrive:vps-backup/<旧名称> gdrive:vps-backup/<新名称>`），**所有历史备份完整保留、免重新上传**。
+- **CLI 命令行使用**：
+  ```bash
+  python3 /usr/local/bin/vps-backup-nodes.py rename <旧名称> <新名称>
+  ```
+- **Telegram 机器人**：发送 `/rename <旧名称> <新名称>` 或在「🌐 节点与部署」点击「✏️ 改名」。
+
 ---
 
 ## 注意事项

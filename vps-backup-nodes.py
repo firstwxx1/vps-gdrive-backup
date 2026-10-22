@@ -117,6 +117,80 @@ def delete_node(name, purge_gdrive=False):
     )
     return True, f"节点 {real_name} 已成功移除{purge_msg}"
 
+def rename_node(old_name, new_name):
+    old_name = (old_name or "").strip()
+    new_name = (new_name or "").strip()
+    if not old_name or not new_name:
+        return False, "原名称与新名称均不能为空"
+    if old_name == new_name:
+        return False, "新名称与原名称相同，无需更改"
+    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', new_name):
+        return False, "新名称仅支持字母、数字、下划线、中划线和点"
+
+    conf = load_conf()
+    master = conf.get("BACKUP_NAME", "vps-45.130.166.10")
+    nodes = load_nodes()
+
+    if new_name == master:
+        return False, f"新名称 {new_name} 与本机主控名称重复"
+    if any(n.get("name") == new_name for n in nodes):
+        return False, f"新名称 {new_name} 已被其他受控节点占用"
+
+    is_master = (old_name == master)
+    remote_target = next((n for n in nodes if n.get("name") == old_name or n.get("host") == old_name), None)
+
+    if not is_master and not remote_target:
+        return False, f"未找到名为 {old_name} 的节点"
+
+    if is_master:
+        if os.path.exists(CONF_FILE):
+            try:
+                content = open(CONF_FILE, "r", encoding="utf-8", errors="ignore").read()
+                if re.search(r'^BACKUP_NAME=.*$', content, re.M):
+                    content = re.sub(r'^BACKUP_NAME=.*$', f'BACKUP_NAME="{new_name}"', content, flags=re.M)
+                else:
+                    content = content.rstrip() + f'\nBACKUP_NAME="{new_name}"\n'
+                with open(CONF_FILE, "w", encoding="utf-8") as f:
+                    f.write(content)
+                print(f"[+] 本机主控节点名称已修改: {old_name} -> {new_name}")
+            except Exception as e:
+                return False, f"更新 backup.conf 失败: {e}"
+    else:
+        for n in nodes:
+            if n.get("name") == remote_target.get("name") or n.get("host") == remote_target.get("host"):
+                n["name"] = new_name
+                break
+        save_nodes(nodes)
+        print(f"[+] 受控远程节点名称已修改: {old_name} -> {new_name}")
+
+    # 同步迁移 Google Drive 云盘目录（如果旧备份目录存在）
+    cloud_msg = ""
+    try:
+        check_cmd = ["rclone", "lsf", "--bind", "0.0.0.0", f"gdrive:vps-backup/{old_name}/"]
+        check_p = subprocess.run(check_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=12)
+        if check_p.returncode == 0 and check_p.stdout.strip():
+            print(f"[*] 正在将云盘目录 gdrive:vps-backup/{old_name} 重命名为 gdrive:vps-backup/{new_name} ...")
+            mv_cmd = ["rclone", "moveto", "--bind", "0.0.0.0", f"gdrive:vps-backup/{old_name}", f"gdrive:vps-backup/{new_name}"]
+            mv_p = subprocess.run(mv_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=40)
+            if mv_p.returncode == 0:
+                cloud_msg = "，云盘历史备份已无缝迁移至新名称目录"
+                print(f"[+] 云盘目录无缝重命名迁移成功！")
+            else:
+                cloud_msg = f"，但云盘迁移提示: {mv_p.stderr.strip()[:100]}"
+                print(f"[!] 云盘重命名提示: {mv_p.stderr.strip()}")
+    except Exception as e:
+        cloud_msg = f" (云盘迁移异常: {e})"
+
+    tg_send(
+        f"✏️ <b>[节点名称修改通知]</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"原节点名称: <code>{old_name}</code>\n"
+        f"新节点名称: <code>{new_name}</code>\n"
+        f"节点类型: {'🖥️ 本机海外主控' if is_master else '🌐 远程受控节点'}\n"
+        f"处理结果: 节点名称修改成功{cloud_msg}。"
+    )
+    return True, f"节点已成功更名为 {new_name}{cloud_msg}"
+
 def backup_node(node):
     name = node.get("name") or f"vps-{node.get('host')}"
     host = node.get("host")
@@ -267,6 +341,16 @@ if __name__ == "__main__":
         del_target = sys.argv[2]
         do_purge = ("--purge" in sys.argv)
         ok, msg = delete_node(del_target, purge_gdrive=do_purge)
+        print(msg)
+        sys.exit(0 if ok else 1)
+
+    if len(sys.argv) > 1 and sys.argv[1] in ("rename", "mv"):
+        if len(sys.argv) < 4:
+            print("用法: vps-backup-nodes.py rename <old_name> <new_name>")
+            sys.exit(1)
+        old_n = sys.argv[2]
+        new_n = sys.argv[3]
+        ok, msg = rename_node(old_n, new_n)
         print(msg)
         sys.exit(0 if ok else 1)
 

@@ -93,25 +93,54 @@ manage_nodes() {
         python3 /usr/local/bin/vps-backup-nodes.py list 2>/dev/null || echo -e "  ${YELLOW}(暂无远程节点)${NC}"
         echo
         echo -e "  ${GREEN}[1]${NC} ➕ 接入新 VPS 节点 (流式无感直传 Google Drive)"
-        echo -e "  ${GREEN}[2]${NC} 🗑️ 移除/删除已纳管节点 (支持清空云盘备份)"
-        echo -e "  ${GREEN}[3]${NC} ⚡ 立即执行全节点并发流式备份"
-        echo -e "  ${GREEN}[4]${NC} 📂 查看 Google Drive 全节点备份文件"
+        echo -e "  ${GREEN}[2]${NC} ✏️ 修改 VPS 节点名称 (同步云盘目录重命名)"
+        echo -e "  ${GREEN}[3]${NC} 🗑️ 移除/删除已纳管节点 (支持清空云盘备份)"
+        echo -e "  ${GREEN}[4]${NC} ⚡ 立即执行全节点并发流式备份"
+        echo -e "  ${GREEN}[5]${NC} 📂 查看 Google Drive 全节点备份文件"
         echo -e "  ${GREEN}[0]${NC} 返回主菜单"
         echo
-        read -r -p "请选择管理操作 [0-4]: " n_opt
+        read -r -p "请选择管理操作 [0-5]: " n_opt
         case "$n_opt" in
             1) deploy_new_vps ;;
-            2) delete_node_cli ;;
-            3)
+            2) rename_node_cli ;;
+            3) delete_node_cli ;;
+            4)
                 echo -e "\n[*] 正在启动全节点流式备份..."
                 python3 /usr/local/bin/vps-backup-nodes.py all
                 pause
                 ;;
-            4) list_backups ;;
+            5) list_backups ;;
             0|q) break ;;
             *) echo -e "${RED}无效输入${NC}"; sleep 1 ;;
         esac
     done
+}
+
+rename_node_cli() {
+    header
+    echo -e "${BOLD}${CYAN}=== ✏️ 修改 VPS 节点名称 ===${NC}\n"
+    echo -e "💡 更改节点名称后，系统将自动把 Google Drive 云端历史归档同步重命名，无须重新上传！\n"
+    python3 /usr/local/bin/vps-backup-nodes.py list 2>/dev/null
+    echo
+    read -r -p "请输入当前原节点名称 (例如 vps-45.130.166.10 或 serv00-ztwotv): " old_name
+    old_name=$(echo "$old_name" | tr -d '[:space:]')
+    if [ -z "$old_name" ]; then
+        echo -e "${YELLOW}未输入原节点名称，操作已取消${NC}"
+        pause
+        return
+    fi
+
+    read -r -p "请输入新的节点名称 (例如 tokyo-01): " new_name
+    new_name=$(echo "$new_name" | tr -d '[:space:]')
+    if [ -z "$new_name" ]; then
+        echo -e "${YELLOW}未输入新节点名称，操作已取消${NC}"
+        pause
+        return
+    fi
+
+    echo -e "\n[*] 正在重命名节点并同步云端目录..."
+    python3 /usr/local/bin/vps-backup-nodes.py rename "$old_name" "$new_name"
+    pause
 }
 
 delete_node_cli() {

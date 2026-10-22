@@ -548,6 +548,50 @@ HTML_PAGE = """<!DOCTYPE html>
             }
         }
 
+        let currentRenameNode = '';
+        function openRenameModal(name) {
+            currentRenameNode = name;
+            document.getElementById('rename-old-name').textContent = name;
+            document.getElementById('rename-new-name').value = name;
+            document.getElementById('rename-modal').style.display = 'flex';
+        }
+        function closeRenameModal() {
+            currentRenameNode = '';
+            document.getElementById('rename-modal').style.display = 'none';
+        }
+        async function confirmRenameNode() {
+            if (!currentRenameNode) return;
+            const oldName = currentRenameNode;
+            const newName = document.getElementById('rename-new-name').value.trim();
+            if (!newName) {
+                alert('新节点名称不能为空');
+                return;
+            }
+            if (newName === oldName) {
+                closeRenameModal();
+                return;
+            }
+            closeRenameModal();
+            appendTerm('\\n[节点管理] 正在将节点 ' + oldName + ' 重命名为 ' + newName + ' ...\\n');
+            try {
+                const res = await fetch('/api/rename_node', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_name: oldName, new_name: newName })
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    appendTerm('[+] ' + data.msg + '\\n');
+                    loadNodes();
+                } else {
+                    appendTerm('[-] 重命名失败: ' + data.error + '\\n');
+                    alert('重命名失败: ' + data.error);
+                }
+            } catch(e) {
+                appendTerm('[-] 请求异常: ' + e + '\\n');
+            }
+        }
+
         async function loadNodes() {
             try {
                 const res = await fetch('/api/nodes');
@@ -565,9 +609,10 @@ HTML_PAGE = """<!DOCTYPE html>
                         <td style="padding: 10px 8px;"><b>${master}</b></td>
                         <td style="padding: 10px 8px;"><code>本机 (127.0.0.1)</code></td>
                         <td style="padding: 10px 8px;"><span style="color: var(--success); font-weight: 600;">● 每日 03:17</span></td>
-                        <td style="padding: 10px 8px; text-align: right;">
-                            <button style="padding: 4px 10px; font-size: 12px;" onclick="runCmd('vps-backup archive')">⚡ 备份本机</button>
-                            <button style="padding: 4px 10px; font-size: 12px;" onclick="runCmd('vps-backup list')">📂 归档</button>
+                        <td style="padding: 10px 8px; text-align: right; display: flex; gap: 6px; justify-content: flex-end;">
+                            <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('vps-backup archive')">⚡ 备份本机</button>
+                            <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('vps-backup list')">📂 归档</button>
+                            <button style="padding: 4px 8px; font-size: 12px; background: #0284c7; border-color: #38bdf8;" onclick="openRenameModal('${master}')">✏️ 改名</button>
                         </td>
                     </tr>
                 `;
@@ -583,6 +628,7 @@ HTML_PAGE = """<!DOCTYPE html>
                             <td style="padding: 10px 8px; text-align: right; display: flex; gap: 6px; justify-content: flex-end;">
                                 <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('python3 /usr/local/bin/vps-backup-nodes.py ' + '${n.name}')">⚡ 备份</button>
                                 <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/' + '${n.name}/')">📂 归档</button>
+                                <button style="padding: 4px 8px; font-size: 12px; background: #0284c7; border-color: #38bdf8;" onclick="openRenameModal('${n.name}')">✏️ 改名</button>
                                 <button style="padding: 4px 8px; font-size: 12px; background: #dc2626; border-color: #ef4444;" onclick="openDeleteModal('${n.name}')">🗑️ 移除</button>
                             </td>
                         </tr>
@@ -640,6 +686,29 @@ HTML_PAGE = """<!DOCTYPE html>
                 <button style="justify-content: center; background: transparent;" onclick="closeDeleteModal()">
                     🔙 取消返回
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 重命名节点弹窗 -->
+    <div id="rename-modal" style="display:none; position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 1000; align-items: center; justify-content: center;">
+        <div style="background: var(--card-bg); border: 1px solid var(--border); border-radius: 12px; padding: 24px; max-width: 480px; width: 90%;">
+            <h3 style="color: var(--primary); margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+                ✏️ 修改 VPS 节点名称
+            </h3>
+            <p style="font-size: 14px; margin-bottom: 12px;">
+                原节点名称: <code id="rename-old-name" style="color: var(--text); font-weight: bold;"></code>
+            </p>
+            <div class="form-group" style="margin-bottom: 16px;">
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px;">输入新节点名称 (支持字母、数字、中划线等)</label>
+                <input type="text" id="rename-new-name" placeholder="例如: sg-main 或 tencent-cloud" style="width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; color: #fff; outline: none;">
+            </div>
+            <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 18px; line-height: 1.5;">
+                💡 重命名后，系统会自动将该节点在 Google Drive 5TB 上的历史归档文件夹无缝迁移至新名称，历史备份不丢失！
+            </p>
+            <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                <button style="background: transparent; border-color: var(--border);" onclick="closeRenameModal()">取消</button>
+                <button class="btn-primary" onclick="confirmRenameNode()">确认更名</button>
             </div>
         </div>
     </div>
@@ -1061,6 +1130,36 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(json.dumps({"ok": True, "msg": f"节点 {real_name} 已成功移除{purge_msg}"}).encode("utf-8"))
+            return
+
+        if self.path == "/api/rename_node":
+            data = json.loads(post_data or "{}")
+            old_name = data.get("old_name", "").strip()
+            new_name = data.get("new_name", "").strip()
+            if not old_name or not new_name:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": "节点原名称与新名称均不能为空"}).encode("utf-8"))
+                return
+
+            p = subprocess.run(
+                ["python3", "/usr/local/bin/vps-backup-nodes.py", "rename", old_name, new_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            msg = (p.stdout.strip() or p.stderr.strip())
+            if p.returncode == 0:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True, "msg": msg}).encode("utf-8"))
+            else:
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": False, "error": msg or "重命名失败"}).encode("utf-8"))
             return
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
