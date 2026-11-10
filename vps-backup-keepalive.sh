@@ -53,8 +53,15 @@ check_boot_event() {
     fi
 }
 
+# 判断 systemd 单元是否真的安装过（install.sh 只装 CLI/定时备份，不装 Web 面板和 Bot）
+service_installed() {
+    [ -f "/etc/systemd/system/$1.service" ]
+}
+
 # 2. Web 管理面板保活检测 (端口 8999 + HTTP 连通性)
 check_web() {
+    # 没装 Web 面板就跳过，否则会每轮重启一个不存在的服务并刷错误日志
+    service_installed vps-backup-web || return 0
     local need_restart=0
     if ! systemctl is-active --quiet vps-backup-web 2>/dev/null; then
         need_restart=1
@@ -91,6 +98,9 @@ check_bot() {
     if [ -z "$token" ]; then
         return 0
     fi
+
+    # 没装 Bot 服务就跳过，否则 pgrep 永远找不到进程，会每 3 分钟"自愈"并推送一条假告警
+    service_installed vps-backup-bot || return 0
 
     local need_restart=0
     if ! systemctl is-active --quiet vps-backup-bot 2>/dev/null; then
