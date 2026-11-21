@@ -22,7 +22,7 @@ def load_conf():
         "TG_CHAT_ID": "",
         "TG_API": "https://api.telegram.org",
         "NOTIFY_ON_SUCCESS": "true",
-        "BACKUP_NAME": "vps-45.130.166.10",
+        "BACKUP_NAME": "vps-master",
     }
     if os.path.exists(CONF_FILE):
         try:
@@ -79,7 +79,7 @@ def save_nodes(nodes):
 
 def delete_node(name, purge_gdrive=False):
     conf = load_conf()
-    master = conf.get("BACKUP_NAME", "vps-45.130.166.10")
+    master = conf.get("BACKUP_NAME", "vps-master")
     if name == master:
         print(f"[!] 安全拦截: 禁止删除本机主控节点 ({master})")
         return False, "禁止删除本机主控节点"
@@ -128,7 +128,7 @@ def rename_node(old_name, new_name):
         return False, "新名称仅支持字母、数字、下划线、中划线和点"
 
     conf = load_conf()
-    master = conf.get("BACKUP_NAME", "vps-45.130.166.10")
+    master = conf.get("BACKUP_NAME", "vps-master")
     nodes = load_nodes()
 
     if new_name == master:
@@ -377,7 +377,7 @@ if __name__ == "__main__":
     # 如果是全量节点备份且有节点执行，发送汇总报告
     if target == "all" and results:
         conf = load_conf()
-        master = conf.get("BACKUP_NAME", "vps-45.130.166.10")
+        master = conf.get("BACKUP_NAME", "vps-master")
         quota = subprocess.getoutput("rclone about --bind 0.0.0.0 gdrive: 2>/dev/null")
         q_lines = [l for l in quota.splitlines() if any(l.startswith(k) for k in ["Total:", "Used:", "Free:"])]
         q_str = "\n".join(q_lines) if q_lines else "5.000 TiB 容量正常"

@@ -411,7 +411,7 @@ class TelegramBot:
         threading.Thread(target=worker, daemon=True).start()
 
     def run_serv00_backup(self, chat_id):
-        self.run_remote_node_backup(chat_id, "serv00-ztwotv")
+        self.run_remote_node_backup(chat_id, "serv00-node")
 
     def run_remote_node_backup(self, chat_id, node_name):
         def worker():
@@ -489,7 +489,7 @@ class TelegramBot:
         base = self.conf.get("REMOTE_BASE", "vps-backup")
         bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
         if tier == "serv00":
-            rel_dir = "serv00-ztwotv/archive/daily"
+            rel_dir = "serv00-node/archive/daily"
         elif tier.startswith("node:"):
             nname = tier.split(":", 1)[1]
             rel_dir = f"{nname}/archive/daily"
@@ -1104,7 +1104,7 @@ class TelegramBot:
             )
         elif data == "act:prune_now":
             out = subprocess.getoutput(
-                "rclone delete --bind 0.0.0.0 --tpslimit 4 --min-age 7d gdrive:vps-backup/vps-45.130.166.10/archive/daily 2>&1"
+                "rclone delete --bind 0.0.0.0 --tpslimit 4 --min-age 7d gdrive:vps-backup/vps-master/archive/daily 2>&1"
             )
             self.send_msg(chat_id, f"🧹 <b>已按保留策略执行过期备份清理！</b>\n<code>{html_escape(out[:500] or '清理完成')}</code>")
         elif data == "act:empty_trash":
@@ -1380,7 +1380,7 @@ class TelegramBot:
             out = subprocess.getoutput("docker image prune -f 2>&1")
             self.send_msg(chat_id, f"🐳 <b>Docker 悬空镜像清理完成：</b>\n<pre>{html_escape(out[-1500:])}</pre>")
         elif data == "act:show_web_pass":
-            web_pass = "3590114741."
+            web_pass = os.environ.get("VPS_BACKUP_WEB_PASS", "请在 /etc/vps-backup/web.conf 查看")
             if os.path.exists("/etc/vps-backup/web.conf"):
                 try:
                     with open("/etc/vps-backup/web.conf", "r", encoding="utf-8") as f:
@@ -1389,7 +1389,7 @@ class TelegramBot:
                                 web_pass = l.strip().split("=", 1)[1].strip('"\'')
                 except:
                     pass
-            ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "45.130.166.10"
+            ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "127.0.0.1"
             self.edit_msg(
                 chat_id, msg_id,
                 f"🔑 <b>【Web 终端管理控制台】</b>\n"
@@ -1397,7 +1397,7 @@ class TelegramBot:
                 f"🌐 <b>访问地址</b>: <code>http://{ip}:8999</code>\n"
                 f"🔑 <b>登录密码</b>: <code>{web_pass}</code>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"💡 <i>复制上述密码直接粘贴即可登录。系统同时兼容直接输入 <code>3590114741</code> 或服务器 root 密码。</i>",
+                f"💡 <i>复制上述密码直接粘贴即可登录。系统同时兼容直接输入 <code>已配置密码</code> 或服务器 root 密码。</i>",
                 reply_markup={"inline_keyboard": [
                     [{"text": "🔄 重启 Web 服务", "callback_data": "act:restart_web"}],
                     [{"text": "🔙 返回运维菜单", "callback_data": "nav:ops"}]
@@ -1522,7 +1522,7 @@ class TelegramBot:
             self.show_status_menu(chat_id)
             return
         elif text.startswith("/web") or text.startswith("/password"):
-            web_pass = "3590114741."
+            web_pass = os.environ.get("VPS_BACKUP_WEB_PASS", "请在 /etc/vps-backup/web.conf 查看")
             if os.path.exists("/etc/vps-backup/web.conf"):
                 try:
                     with open("/etc/vps-backup/web.conf", "r", encoding="utf-8") as f:
@@ -1531,7 +1531,7 @@ class TelegramBot:
                                 web_pass = l.strip().split("=", 1)[1].strip('"\'')
                 except:
                     pass
-            ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "45.130.166.10"
+            ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "127.0.0.1"
             self.send_msg(
                 chat_id,
                 f"💻 <b>【Web 终端管理控制台】</b>\n"
@@ -1539,7 +1539,7 @@ class TelegramBot:
                 f"🌐 <b>访问地址</b>: <code>http://{ip}:8999</code>\n"
                 f"🔑 <b>管理密码</b>: <code>{web_pass}</code>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
-                f"💡 <i>复制上述密码直接粘贴登录即可。系统同时也支持输入 <code>3590114741</code> 或服务器 root 密码登录。</i>",
+                f"💡 <i>复制上述密码直接粘贴登录即可。系统同时也支持输入 <code>已配置密码</code> 或服务器 root 密码登录。</i>",
                 reply_markup={"inline_keyboard": [
                     [{"text": "🔄 重启 Web 服务", "callback_data": "act:restart_web"}],
                     [{"text": "🔙 返回主控台", "callback_data": "nav:home"}]

@@ -1,3 +1,4 @@
+import getpass
 import paramiko
 import os
 import sys
@@ -7,8 +8,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 def deploy_panels_and_bot():
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    print("[*] 连接到 45.130.166.10 ...")
-    client.connect("45.130.166.10", port=22, username="root", password="Hsb35901147411", timeout=15)
+    print("[*] 连接到 YOUR_VPS_IP ...")
+    host = os.environ.get("VPS_IP") or input("VPS IP: ").strip()
+    user = os.environ.get("VPS_USER", "root")
+    pwd = os.environ.get("VPS_PASSWORD") or getpass.getpass(f"SSH Password ({user}@{host}): ")
+    client.connect(host, port=22, username=user, password=pwd, timeout=15)
     
     sftp = client.open_sftp()
     

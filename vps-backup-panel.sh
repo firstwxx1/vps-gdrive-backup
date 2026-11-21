@@ -122,7 +122,7 @@ rename_node_cli() {
     echo -e "💡 更改节点名称后，系统将自动把 Google Drive 云端历史归档同步重命名，无须重新上传！\n"
     python3 /usr/local/bin/vps-backup-nodes.py list 2>/dev/null
     echo
-    read -r -p "请输入当前原节点名称 (例如 vps-45.130.166.10 或 serv00-ztwotv): " old_name
+    read -r -p "请输入当前原节点名称 (例如 vps-node-01 或 serv00-node): " old_name
     old_name=$(echo "$old_name" | tr -d '[:space:]')
     if [ -z "$old_name" ]; then
         echo -e "${YELLOW}未输入原节点名称，操作已取消${NC}"
@@ -148,7 +148,7 @@ delete_node_cli() {
     echo -e "${BOLD}${CYAN}=== 🗑️ 删除 / 移除已纳管节点 ===${NC}\n"
     python3 /usr/local/bin/vps-backup-nodes.py list 2>/dev/null
     echo
-    read -r -p "请输入要移除的节点名称 (例如 vps-124.222.59.251 或 serv00-ztwotv): " del_name
+    read -r -p "请输入要移除的节点名称 (例如 vps-node-02 或 serv00-node): " del_name
     del_name=$(echo "$del_name" | tr -d '[:space:]')
     if [ -z "$del_name" ]; then
         echo -e "${YELLOW}未输入节点名称，操作已取消${NC}"
@@ -319,7 +319,7 @@ manage_web() {
     if systemctl is-active --quiet vps-backup-web 2>/dev/null; then
         status="${GREEN}运行中 (端口: 8999)${NC}"
     fi
-    local cur_pass="3590114741."
+    local cur_pass="${VPS_BACKUP_WEB_PASS:-未设置(请在/etc/vps-backup/web.conf配置)}"
     if [ -f "/etc/vps-backup/web.conf" ]; then
         cur_pass=$(grep '^PASSWORD=' /etc/vps-backup/web.conf 2>/dev/null | cut -d'=' -f2 | tr -d '"'\'' ')
     fi

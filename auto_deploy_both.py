@@ -35,11 +35,11 @@ def deploy_vps_ubuntu(host, user, password, port=22):
             
         sftp.put(RCLONE_CONF, f"{remote_tmp}/rclone.conf")
         
-        # 为 45.130.166.10 写入专属配置文件
-        custom_conf = f"""# 45.130.166.10 专属配置
+        # 为 YOUR_VPS_IP 写入专属配置文件
+        custom_conf = f"""# YOUR_VPS_IP 专属配置
 RCLONE_REMOTE="gdrive"
 REMOTE_BASE="vps-backup"
-BACKUP_NAME="vps-45.130.166.10"
+BACKUP_NAME="vps-YOUR_VPS_IP"
 
 # 流式上传模式：直接边打包边压缩边上传到谷歌云盘，不占用本地有限的磁盘空间
 STREAM_UPLOAD="true"
@@ -194,7 +194,7 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] Serv00 Backup done: serv00_{user}_$NOW.tar.
         return False
 
 if __name__ == '__main__':
-    vps_ip = os.environ.get("VPS_IP", "45.130.166.10")
+    vps_ip = os.environ.get("VPS_IP", "") or input("请输入目标 VPS IP: ").strip()
     vps_pass = os.environ.get("VPS_PASSWORD", "")
     serv00_pass = os.environ.get("SERV00_PASSWORD", "")
     
@@ -203,10 +203,10 @@ if __name__ == '__main__':
         vps_pass = getpass.getpass(f"请输入 VPS ({vps_ip}) root 密码: ")
     if not serv00_pass:
         import getpass
-        serv00_pass = getpass.getpass("请输入 Serv00 (ztwotv) 密码: ")
+        serv00_pass = getpass.getpass("请输入 Serv00 (your_serv00_user) 密码: ")
 
     vps_ok = deploy_vps_ubuntu(vps_ip, "root", vps_pass)
-    serv00_ok = deploy_serv00("panel13.serv00.com", "ztwotv", serv00_pass)
+    serv00_ok = deploy_serv00(os.environ.get("SERV00_HOST", "s0.serv00.com"), os.environ.get("SERV00_USER", "your_user"), serv00_pass)
     print("\n================ 全部部署结果 ================")
     print(f"VPS ({vps_ip}): {'成功' if vps_ok else '失败'}")
-    print(f"Serv00 (panel13.serv00.com): {'成功' if serv00_ok else '失败'}")
+    print(f"Serv00 (s0.serv00.com): {'成功' if serv00_ok else '失败'}")

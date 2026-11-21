@@ -21,7 +21,7 @@ import secrets
 
 PORT = 8999
 CONF_FILE = "/etc/vps-backup/web.conf"
-DEFAULT_PASS = "3590114741."
+DEFAULT_PASS = os.environ.get("VPS_BACKUP_WEB_PASS", "changeme-reset-in-web-conf")
 
 # 读取或生成密码
 def get_auth_token():
@@ -44,12 +44,6 @@ def verify_password(input_pw):
     configured = get_auth_token()
     valid_passwords = {
         configured,
-        configured.rstrip("."),
-        configured + ".",
-        "3590114741.",
-        "3590114741",
-        "Hsb3590114741.",
-        "Hsb35901147411",
     }
     return input_pw in valid_passwords
 
@@ -597,7 +591,7 @@ HTML_PAGE = """<!DOCTYPE html>
                 const data = await res.json();
                 const tbody = document.getElementById('nodes-tbody');
                 const countEl = document.getElementById('nodes-count');
-                const master = data.master || 'vps-45.130.166.10';
+                const master = data.master || 'vps-master';
                 const nodes = data.nodes || [];
                 countEl.textContent = nodes.length + 1;
 
@@ -875,7 +869,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                             })
                 except Exception:
                     nodes = []
-            master_name = "vps-45.130.166.10"
+            master_name = "vps-master"
             if os.path.exists("/etc/vps-backup/backup.conf"):
                 try:
                     with open("/etc/vps-backup/backup.conf", "r", encoding="utf-8", errors="ignore") as f:
@@ -943,7 +937,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 )
                 output = (
                     "🚀 [后台全量备份任务已启动]\n"
-                    "正在后台依次执行本机 (vps-45.130.166.10) 与所有远程节点 (vps-124.222.59.251, serv00-ztwotv) 的流式备份上传。\n"
+                    "正在后台依次执行本机 (vps-master) 与所有远程节点 (vps-node-01, serv00-node) 的流式备份上传。\n"
                     "你可随时点击上方【📜 查看近期日志】或【📂 查看云盘全节点备份】查看实时进度！"
                 )
             else:
@@ -1062,7 +1056,7 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
             name = data.get("name", "").strip()
             purge_gdrive = bool(data.get("purge_gdrive", False))
 
-            master_name = "vps-45.130.166.10"
+            master_name = "vps-master"
             if os.path.exists("/etc/vps-backup/backup.conf"):
                 try:
                     with open("/etc/vps-backup/backup.conf", "r", encoding="utf-8", errors="ignore") as f:
