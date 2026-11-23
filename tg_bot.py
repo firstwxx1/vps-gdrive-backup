@@ -127,7 +127,7 @@ def get_cron_schedule():
                     parts = line.split()
                     if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
                         return f"{int(parts[1]):02d}:{int(parts[0]):02d}"
-        except:
+        except Exception:
             pass
     try:
         out = subprocess.getoutput("crontab -l 2>/dev/null")
@@ -137,7 +137,7 @@ def get_cron_schedule():
                 parts = line.split()
                 if len(parts) >= 2 and parts[0].isdigit() and parts[1].isdigit():
                     return f"{int(parts[1]):02d}:{int(parts[0]):02d}"
-    except:
+    except Exception:
         pass
     return "03:17"
 
@@ -169,7 +169,7 @@ def load_nodes():
     if os.path.exists(NODES_FILE):
         try:
             return json.loads(open(NODES_FILE, "r", encoding="utf-8").read())
-        except:
+        except Exception:
             pass
     return []
 
@@ -1387,7 +1387,7 @@ class TelegramBot:
                         for l in f:
                             if l.strip().startswith("PASSWORD="):
                                 web_pass = l.strip().split("=", 1)[1].strip('"\'')
-                except:
+                except Exception:
                     pass
             ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "127.0.0.1"
             self.edit_msg(
@@ -1529,7 +1529,7 @@ class TelegramBot:
                         for l in f:
                             if l.strip().startswith("PASSWORD="):
                                 web_pass = l.strip().split("=", 1)[1].strip('"\'')
-                except:
+                except Exception:
                     pass
             ip = subprocess.getoutput("curl -s4 --max-time 3 ifconfig.me || hostname -I | awk '{print $1}'").strip() or "127.0.0.1"
             self.send_msg(

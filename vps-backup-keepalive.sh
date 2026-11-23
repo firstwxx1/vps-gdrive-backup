@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -u
 #
 # vps-backup-keepalive —— VPS 备份系统服务守护与保活检测脚本
 # 负责在开机和系统运行期间保活 Web 终端面板、Telegram Bot、Cron 任务
