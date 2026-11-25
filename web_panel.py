@@ -584,6 +584,16 @@ HTML_PAGE = """<!DOCTYPE html>
             }
         }
 
+        function escHtml(s) {
+            return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+        function escJs(s) {
+            return JSON.stringify(String(s || '')).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function shQuote(s) {
+            return "'" + String(s || '').replace(/'/g, "'\\''") + "'";
+        }
+
         async function loadNodes() {
             try {
                 const res = await fetch('/api/nodes');
@@ -598,30 +608,32 @@ HTML_PAGE = """<!DOCTYPE html>
                 let html = `
                     <tr style="border-bottom: 1px solid var(--border); background: rgba(56, 189, 248, 0.04);">
                         <td style="padding: 10px 8px;"><span style="color: var(--primary);">🖥️ 海外主控</span></td>
-                        <td style="padding: 10px 8px;"><b>${master}</b></td>
+                        <td style="padding: 10px 8px;"><b>${escHtml(master)}</b></td>
                         <td style="padding: 10px 8px;"><code>本机 (127.0.0.1)</code></td>
                         <td style="padding: 10px 8px;"><span style="color: var(--success); font-weight: 600;">● 每日 03:17</span></td>
                         <td style="padding: 10px 8px; text-align: right; display: flex; gap: 6px; justify-content: flex-end;">
                             <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('vps-backup archive')">⚡ 备份本机</button>
                             <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('vps-backup list')">📂 归档</button>
-                            <button style="padding: 4px 8px; font-size: 12px; background: #0284c7; border-color: #38bdf8;" onclick="openRenameModal('${master}')">✏️ 改名</button>
+                            <button style="padding: 4px 8px; font-size: 12px; background: #0284c7; border-color: #38bdf8;" onclick="openRenameModal(${escJs(master)})">✏️ 改名</button>
                         </td>
                     </tr>
                 `;
 
                 nodes.forEach(n => {
                     const typeLabel = n.type === 'serv00' ? '🌐 Serv00' : '🐧 Linux VPS';
+                    const bkCmd = 'python3 /usr/local/bin/vps-backup-nodes.py ' + shQuote(n.name);
+                    const lsCmd = 'rclone lsl --bind 0.0.0.0 --fast-list ' + shQuote('gdrive:vps-backup/' + n.name + '/');
                     html += `
                         <tr style="border-bottom: 1px solid var(--border);">
                             <td style="padding: 10px 8px;"><span>${typeLabel}</span></td>
-                            <td style="padding: 10px 8px;"><b>${n.name}</b></td>
-                            <td style="padding: 10px 8px;"><code>${n.user}@${n.host}:${n.port}</code></td>
+                            <td style="padding: 10px 8px;"><b>${escHtml(n.name)}</b></td>
+                            <td style="padding: 10px 8px;"><code>${escHtml(n.user)}@${escHtml(n.host)}:${escHtml(n.port)}</code></td>
                             <td style="padding: 10px 8px;"><span style="color: var(--success); font-weight: 600;">● 自动流式直传</span></td>
                             <td style="padding: 10px 8px; text-align: right; display: flex; gap: 6px; justify-content: flex-end;">
-                                <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('python3 /usr/local/bin/vps-backup-nodes.py ' + '${n.name}')">⚡ 备份</button>
-                                <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd('rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/' + '${n.name}/')">📂 归档</button>
-                                <button style="padding: 4px 8px; font-size: 12px; background: #0284c7; border-color: #38bdf8;" onclick="openRenameModal('${n.name}')">✏️ 改名</button>
-                                <button style="padding: 4px 8px; font-size: 12px; background: #dc2626; border-color: #ef4444;" onclick="openDeleteModal('${n.name}')">🗑️ 移除</button>
+                                <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd(${escJs(bkCmd)})">⚡ 备份</button>
+                                <button style="padding: 4px 8px; font-size: 12px;" onclick="runCmd(${escJs(lsCmd)})">📂 归档</button>
+                                <button style="padding: 4px 8px; font-size: 12px; background: #0284c7; border-color: #38bdf8;" onclick="openRenameModal(${escJs(n.name)})">✏️ 改名</button>
+                                <button style="padding: 4px 8px; font-size: 12px; background: #dc2626; border-color: #ef4444;" onclick="openDeleteModal(${escJs(n.name)})">🗑️ 移除</button>
                             </td>
                         </tr>
                     `;
@@ -692,8 +704,8 @@ HTML_PAGE = """<!DOCTYPE html>
                 原节点名称: <code id="rename-old-name" style="color: var(--text); font-weight: bold;"></code>
             </p>
             <div class="form-group" style="margin-bottom: 16px;">
-                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px;">输入新节点名称 (支持字母、数字、中划线等)</label>
-                <input type="text" id="rename-new-name" placeholder="例如: sg-main 或 tencent-cloud" style="width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; color: #fff; outline: none;">
+                <label style="display: block; font-size: 12px; color: var(--text-dim); margin-bottom: 6px;">输入新节点名称 (支持汉字、字母、数字、下划线、中划线和点)</label>
+                <input type="text" id="rename-new-name" placeholder="例如: 东京主控、阿里云-日本 或 sg-main" style="width: 100%; padding: 10px 12px; background: #0f172a; border: 1px solid var(--border); border-radius: 6px; color: #fff; outline: none;">
             </div>
             <p style="font-size: 12px; color: var(--text-dim); margin-bottom: 18px; line-height: 1.5;">
                 💡 重命名后，系统会自动将该节点在 Google Drive 5TB 上的历史归档文件夹无缝迁移至新名称，历史备份不丢失！
@@ -1139,19 +1151,21 @@ class PanelHandler(http.server.BaseHTTPRequestHandler):
                 ["python3", "/usr/local/bin/vps-backup-nodes.py", "rename", old_name, new_name],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                text=True
+                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             msg = (p.stdout.strip() or p.stderr.strip())
             if p.returncode == 0:
                 self.send_response(200)
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(json.dumps({"ok": True, "msg": msg}).encode("utf-8"))
+                self.wfile.write(json.dumps({"ok": True, "msg": msg}, ensure_ascii=False).encode("utf-8"))
             else:
                 self.send_response(200)
-                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.end_headers()
-                self.wfile.write(json.dumps({"ok": False, "error": msg or "重命名失败"}).encode("utf-8"))
+                self.wfile.write(json.dumps({"ok": False, "error": msg or "重命名失败"}, ensure_ascii=False).encode("utf-8"))
             return
 
 class ThreadedTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):

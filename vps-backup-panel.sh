@@ -130,7 +130,7 @@ rename_node_cli() {
         return
     fi
 
-    read -r -p "请输入新的节点名称 (例如 tokyo-01): " new_name
+    read -r -p "请输入新的节点名称 (支持汉字、字母、数字、下划线、中划线和点，例如 东京节点 或 tokyo-01): " new_name
     new_name=$(echo "$new_name" | tr -d '[:space:]')
     if [ -z "$new_name" ]; then
         echo -e "${YELLOW}未输入新节点名称，操作已取消${NC}"

@@ -8,6 +8,7 @@
 import json
 import os
 import re
+import shlex
 import sys
 import time
 import subprocess
@@ -15,6 +16,19 @@ import paramiko
 
 NODES_FILE = "/etc/vps-backup/nodes.json"
 CONF_FILE = "/etc/vps-backup/backup.conf"
+NODE_NAME_RE = re.compile(r'^[\u4e00-\u9fff\u3400-\u4dbfa-zA-Z0-9_\-\.]+$')
+
+
+def validate_node_name(name):
+    if not name:
+        return False, "名称不能为空"
+    if len(name) > 48:
+        return False, "名称长度不能超过 48 个字符"
+    if name in (".", "..") or ".." in name or name.startswith(".") or name.endswith("."):
+        return False, "名称不能以点开头/结尾或包含连续点 (..)"
+    if not NODE_NAME_RE.match(name):
+        return False, "新名称仅支持汉字、字母、数字、下划线、中划线和点"
+    return True, ""
 
 def load_conf():
     conf = {
@@ -124,8 +138,9 @@ def rename_node(old_name, new_name):
         return False, "原名称与新名称均不能为空"
     if old_name == new_name:
         return False, "新名称与原名称相同，无需更改"
-    if not re.match(r'^[a-zA-Z0-9_\-\.]+$', new_name):
-        return False, "新名称仅支持字母、数字、下划线、中划线和点"
+    ok_name, err_name = validate_node_name(new_name)
+    if not ok_name:
+        return False, err_name
 
     conf = load_conf()
     master = conf.get("BACKUP_NAME", "vps-master")
@@ -147,7 +162,7 @@ def rename_node(old_name, new_name):
             try:
                 content = open(CONF_FILE, "r", encoding="utf-8", errors="ignore").read()
                 if re.search(r'^BACKUP_NAME=.*$', content, re.M):
-                    content = re.sub(r'^BACKUP_NAME=.*$', f'BACKUP_NAME="{new_name}"', content, flags=re.M)
+                    content = re.sub(r'^BACKUP_NAME=.*$', lambda _: f'BACKUP_NAME="{new_name}"', content, flags=re.M)
                 else:
                     content = content.rstrip() + f'\nBACKUP_NAME="{new_name}"\n'
                 with open(CONF_FILE, "w", encoding="utf-8") as f:
@@ -167,11 +182,11 @@ def rename_node(old_name, new_name):
     cloud_msg = ""
     try:
         check_cmd = ["rclone", "lsf", "--bind", "0.0.0.0", f"gdrive:vps-backup/{old_name}/"]
-        check_p = subprocess.run(check_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=12)
+        check_p = subprocess.run(check_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", timeout=12)
         if check_p.returncode == 0 and check_p.stdout.strip():
             print(f"[*] 正在将云盘目录 gdrive:vps-backup/{old_name} 重命名为 gdrive:vps-backup/{new_name} ...")
             mv_cmd = ["rclone", "moveto", "--bind", "0.0.0.0", f"gdrive:vps-backup/{old_name}", f"gdrive:vps-backup/{new_name}"]
-            mv_p = subprocess.run(mv_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=40)
+            mv_p = subprocess.run(mv_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", timeout=40)
             if mv_p.returncode == 0:
                 cloud_msg = "，云盘历史备份已无缝迁移至新名称目录"
                 print(f"[+] 云盘目录无缝重命名迁移成功！")
@@ -218,7 +233,7 @@ def backup_node(node):
         dur = int(time.time() - t0)
         
         # 获取最新上传的文件信息
-        lsl_out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list 'gdrive:vps-backup/{name}/archive/daily/' 2>/dev/null | tail -n 1")
+        lsl_out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list {shlex.quote(f'gdrive:vps-backup/{name}/archive/daily/')} 2>/dev/null | tail -n 1")
         file_info = ""
         sz_str = ""
         if lsl_out.strip():

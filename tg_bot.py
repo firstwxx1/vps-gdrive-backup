@@ -18,6 +18,7 @@ import sys
 import time
 import json
 import shlex
+import hashlib
 import subprocess
 import threading
 
@@ -195,8 +196,31 @@ class TelegramBot:
         self.user_state = {}        # chat_id -> {"mode": ..., "meta": ...}
         self.file_cache = {}        # short_id -> full remote relative path
         self.container_cache = {}   # short_id -> container name
+        self.node_cache = {}        # short_id -> node name (avoids Telegram 64B UTF-8 callback_data limit)
         self.commands_registered = False
         self.last_token = ""
+
+    def node_ref(self, name):
+        """为节点名生成稳定 8 位短标识，避免中文节点名超过 Telegram 64 字节 callback_data 限制"""
+        name = str(name or "")
+        ref = hashlib.md5(name.encode("utf-8")).hexdigest()[:8]
+        self.node_cache[ref] = name
+        return ref
+
+    def resolve_node_ref(self, ref):
+        if ref in self.node_cache:
+            return self.node_cache[ref]
+        self.reload()
+        bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
+        if hashlib.md5(bname.encode("utf-8")).hexdigest()[:8] == ref:
+            self.node_cache[ref] = bname
+            return bname
+        for n in load_nodes():
+            nm = n.get("name") or f"vps-{n.get('host')}"
+            if hashlib.md5(nm.encode("utf-8")).hexdigest()[:8] == ref:
+                self.node_cache[ref] = nm
+                return nm
+        return ref
 
     def reload(self):
         self.conf = parse_conf()
@@ -421,9 +445,12 @@ class TelegramBot:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                errors="ignore",
+                encoding="utf-8",
+                errors="replace",
             )
-            files_out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list 'gdrive:vps-backup/{node_name}/archive/daily/' 2>/dev/null | tail -n 5")
+            files_out = subprocess.getoutput(
+                f"rclone lsl --bind 0.0.0.0 --fast-list {shlex.quote(f'gdrive:vps-backup/{node_name}/archive/daily/')} 2>/dev/null | tail -n 5"
+            )
             icon = "✅" if p.returncode == 0 else "❌"
             self.send_msg(
                 chat_id,
@@ -444,7 +471,7 @@ class TelegramBot:
             nname = n.get("name", "")
             if not nname:
                 continue
-            row.append({"text": f"🌐 {nname}", "callback_data": f"flist:node:{nname}"})
+            row.append({"text": f"🌐 {nname}", "callback_data": f"flist:node:{self.node_ref(nname)}"})
             if len(row) == 2:
                 node_rows.append(row)
                 row = []
@@ -454,7 +481,7 @@ class TelegramBot:
         text = (
             f"<b>📂 Google Drive 5TB 云盘文件与空间管理</b>\n"
             f"━━━━━━━━━━━━━━━━━━━━━━\n"
-            f"已纳管节点: <code>{bname}</code>"
+            f"已纳管节点: <code>{html_escape(bname)}</code>"
             + ("".join([f"、<code>{html_escape(n.get('name'))}</code>" for n in nodes]))
             + "\n点击下方对应节点或周期按钮浏览归档文件（支持对单个文件<b>一键恢复</b>或<b>删除</b>）："
         )
@@ -491,13 +518,13 @@ class TelegramBot:
         if tier == "serv00":
             rel_dir = "serv00-node/archive/daily"
         elif tier.startswith("node:"):
-            nname = tier.split(":", 1)[1]
+            nname = self.resolve_node_ref(tier.split(":", 1)[1])
             rel_dir = f"{nname}/archive/daily"
         else:
             rel_dir = f"{bname}/archive/{tier}"
 
         full_remote = f"{remote}:{base}/{rel_dir}"
-        out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list '{full_remote}' 2>/dev/null | sort -k2,3")
+        out = subprocess.getoutput(f"rclone lsl --bind 0.0.0.0 --fast-list {shlex.quote(full_remote)} 2>/dev/null | sort -k2,3")
         lines = [ln.strip() for ln in out.splitlines() if ln.strip() and not ln.startswith("NOTICE")]
 
         self.file_cache.clear()
@@ -707,22 +734,24 @@ class TelegramBot:
         self.reload()
         bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
         nodes = load_nodes()
+        bref = self.node_ref(bname)
         node_lines = [f"0. <b>{html_escape(bname)}</b> (<code>本机主控</code>)"]
         node_btn_rows = [
             [
                 {"text": "⚡ 备份主控", "callback_data": "act:bk_run"},
-                {"text": "📂 云盘文件", "callback_data": f"flist:node:{bname}"},
-                {"text": "✏️ 改名", "callback_data": f"nrename_cf:{bname}"},
+                {"text": "📂 云盘文件", "callback_data": f"flist:node:{bref}"},
+                {"text": "✏️ 改名", "callback_data": f"nrename_cf:{bref}"},
             ]
         ]
         for idx, n in enumerate(nodes, 1):
             nname = n.get("name", f"vps-{n.get('host')}")
+            nref = self.node_ref(nname)
             node_lines.append(f"{idx}. <b>{html_escape(nname)}</b> (<code>{html_escape(n.get('user'))}@{html_escape(n.get('host'))}</code>)")
             node_btn_rows.append([
-                {"text": f"⚡ {nname[:8]}", "callback_data": f"nbk:{nname}"},
-                {"text": "📂 文件", "callback_data": f"flist:node:{nname}"},
-                {"text": "✏️ 改名", "callback_data": f"nrename_cf:{nname}"},
-                {"text": "🗑️ 移除", "callback_data": f"ndel_cf:{nname}"},
+                {"text": f"⚡ {nname[:8]}", "callback_data": f"nbk:{nref}"},
+                {"text": "📂 文件", "callback_data": f"flist:node:{nref}"},
+                {"text": "✏️ 改名", "callback_data": f"nrename_cf:{nref}"},
+                {"text": "🗑️ 移除", "callback_data": f"ndel_cf:{nref}"},
             ])
         body = "\n".join(node_lines)
         text = (
@@ -1103,8 +1132,11 @@ class TelegramBot:
                 reply_markup={"inline_keyboard": [[{"text": "🔙 返回文件管理", "callback_data": "nav:files"}]]},
             )
         elif data == "act:prune_now":
+            self.reload()
+            bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
+            keep_d = self.conf.get("KEEP_DAILY_DAYS", "7")
             out = subprocess.getoutput(
-                "rclone delete --bind 0.0.0.0 --tpslimit 4 --min-age 7d gdrive:vps-backup/vps-master/archive/daily 2>&1"
+                f"rclone delete --bind 0.0.0.0 --tpslimit 4 --min-age {shlex.quote(str(keep_d) + 'd')} {shlex.quote(f'gdrive:vps-backup/{bname}/archive/daily')} 2>&1"
             )
             self.send_msg(chat_id, f"🧹 <b>已按保留策略执行过期备份清理！</b>\n<code>{html_escape(out[:500] or '清理完成')}</code>")
         elif data == "act:empty_trash":
@@ -1127,7 +1159,7 @@ class TelegramBot:
 
         # 节点与部署动作
         elif data.startswith("nbk:"):
-            nname = data.split(":", 1)[1]
+            nname = self.resolve_node_ref(data.split(":", 1)[1])
             self.run_remote_node_backup(chat_id, nname)
         elif data == "act:node_cloud_dirs":
             files = subprocess.getoutput("rclone lsl --bind 0.0.0.0 --fast-list gdrive:vps-backup/ 2>/dev/null | awk '{printf \"%8.2f MB  %s %s  %s\\n\", $1/1048576, $2, substr($3,1,8), $4}'")
@@ -1173,7 +1205,7 @@ class TelegramBot:
                 del_rows = []
                 for n in nodes:
                     nname = n.get("name", f"vps-{n.get('host')}")
-                    del_rows.append([{"text": f"🗑️ 移除: {nname}", "callback_data": f"ndel_cf:{nname}"}])
+                    del_rows.append([{"text": f"🗑️ 移除: {nname}", "callback_data": f"ndel_cf:{self.node_ref(nname)}"}])
                 del_rows.append([{"text": "🔙 返回节点管理", "callback_data": "nav:nodes"}])
                 self.edit_msg(
                     chat_id, msg_id,
@@ -1181,7 +1213,8 @@ class TelegramBot:
                     reply_markup={"inline_keyboard": del_rows}
                 )
         elif data.startswith("ndel_cf:"):
-            nname = data.split(":", 1)[1]
+            nname = self.resolve_node_ref(data.split(":", 1)[1])
+            nref = self.node_ref(nname)
             text = (
                 f"⚠️ <b>【确认删除/移除节点】</b>\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1198,25 +1231,26 @@ class TelegramBot:
             )
             kb = {
                 "inline_keyboard": [
-                    [{"text": "❌ 仅移除监控 (保留云盘备份)", "callback_data": f"ndel_ok:u:{nname}"}],
-                    [{"text": "💥 彻底移除并清空云盘备份", "callback_data": f"ndel_ok:p:{nname}"}],
+                    [{"text": "❌ 仅移除监控 (保留云盘备份)", "callback_data": f"ndel_ok:u:{nref}"}],
+                    [{"text": "💥 彻底移除并清空云盘备份", "callback_data": f"ndel_ok:p:{nref}"}],
                     [{"text": "🔙 取消返回", "callback_data": "nav:nodes"}],
                 ]
             }
             self.edit_msg(chat_id, msg_id, text, reply_markup=kb)
         elif data.startswith("ndel_ok:"):
-            _, act, nname = data.split(":", 2)
+            _, act, ref = data.split(":", 2)
+            nname = self.resolve_node_ref(ref)
             self.handle_node_delete(chat_id, msg_id, nname, purge_gdrive=(act == "p"))
         elif data == "act:node_rename_menu":
             self.reload()
             bname = self.conf.get("BACKUP_NAME", os.uname().nodename)
             nodes = load_nodes()
             rename_rows = [
-                [{"text": f"🖥️ 本机主控节点: {bname}", "callback_data": f"nrename_cf:{bname}"}]
+                [{"text": f"🖥️ 本机主控节点: {bname}", "callback_data": f"nrename_cf:{self.node_ref(bname)}"}]
             ]
             for n in nodes:
                 nname = n.get("name", f"vps-{n.get('host')}")
-                rename_rows.append([{"text": f"🌐 远程受控节点: {nname}", "callback_data": f"nrename_cf:{nname}"}])
+                rename_rows.append([{"text": f"🌐 远程受控节点: {nname}", "callback_data": f"nrename_cf:{self.node_ref(nname)}"}])
             rename_rows.append([{"text": "🔙 返回节点管理", "callback_data": "nav:nodes"}])
             self.edit_msg(
                 chat_id, msg_id,
@@ -1227,7 +1261,7 @@ class TelegramBot:
                 reply_markup={"inline_keyboard": rename_rows}
             )
         elif data.startswith("nrename_cf:"):
-            target_name = data.split(":", 1)[1]
+            target_name = self.resolve_node_ref(data.split(":", 1)[1])
             self.user_state[chat_id] = {
                 "mode": "rename_node",
                 "old_name": target_name,
@@ -1238,7 +1272,7 @@ class TelegramBot:
                 f"━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"🖥️ <b>当前节点原名</b>: <code>{html_escape(target_name)}</code>\n\n"
                 f"💬 <b>请直接在下方发送该节点的新名称</b>：\n"
-                f"<i>(支持英文字母、数字、下划线、短横线与点，例如: <code>tokyo-01</code> 或 <code>serv00-web</code>)</i>\n\n"
+                f"<i>(支持汉字、英文字母、数字、下划线、短横线与点，例如: <code>东京节点</code>、<code>阿里云-日本</code> 或 <code>tokyo-01</code>)</i>\n\n"
                 f"🔄 确认后，系统将自动同步完成：\n"
                 f"1. 更新本地或多节点配置文件\n"
                 f"2. <b>Google Drive 云端备份目录自动重命名</b> (<code>gdrive:vps-backup/{html_escape(target_name)}</code> ➔ <code>新名称</code>)\n"
@@ -1488,7 +1522,7 @@ class TelegramBot:
                 self.send_msg(chat_id, f"⏳ 正在将节点 <code>{html_escape(old_name)}</code> 重命名为 <code>{html_escape(new_name)}</code> 并同步 Google Drive 云端目录...")
                 def rename_cmd_worker():
                     cmd = ["python3", "/usr/local/bin/vps-backup-nodes.py", "rename", old_name, new_name]
-                    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
                     out = (p.stdout + p.stderr).strip()
                     if p.returncode == 0:
                         self.send_msg(
@@ -1590,7 +1624,7 @@ class TelegramBot:
                 self.send_msg(chat_id, f"⏳ 正在将节点 <code>{html_escape(old_name)}</code> 重命名为 <code>{html_escape(new_name)}</code> 并同步 Google Drive 云端目录...")
                 def rename_worker():
                     cmd = ["python3", "/usr/local/bin/vps-backup-nodes.py", "rename", old_name, new_name]
-                    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                    p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace")
                     out = (p.stdout + p.stderr).strip()
                     if p.returncode == 0:
                         self.send_msg(
